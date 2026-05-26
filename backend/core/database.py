@@ -348,6 +348,9 @@ async def init_db() -> None:
             
         logger.info("Database tables initialized successfully")
         
+        # Seed marketplace data if empty
+        await _seed_marketplace_data()
+        
         # Perform health check after initialization
         is_healthy = await db_config.health_check()
         if is_healthy:
@@ -391,6 +394,18 @@ async def _check_and_apply_migrations(conn) -> None:
                 logger.info("Migrated SQLite: Added threat_intelligence")
             except Exception:
                 pass # Column likely exists
+
+            try:
+                await conn.execute(text("ALTER TABLE vulnerabilities ADD COLUMN marketplace_value_avg FLOAT"))
+                logger.info("Migrated SQLite: Added marketplace_value_avg")
+            except Exception:
+                pass # Column likely exists
+
+            try:
+                await conn.execute(text("ALTER TABLE vulnerabilities ADD COLUMN marketplace_last_analyzed DATETIME"))
+                logger.info("Migrated SQLite: Added marketplace_last_analyzed")
+            except Exception:
+                pass # Column likely exists
         else:
             # Postgres Migration
             result = await conn.execute(text(
@@ -413,10 +428,65 @@ async def _check_and_apply_migrations(conn) -> None:
             if not result.scalar():
                 logger.info("Migrating schema: Adding 'threat_intelligence' to 'vulnerabilities' table")
                 await conn.execute(text("ALTER TABLE vulnerabilities ADD COLUMN threat_intelligence JSONB"))
+
+            result = await conn.execute(text(
+                "SELECT column_name FROM information_schema.columns WHERE table_name='vulnerabilities' AND column_name='marketplace_value_avg'"
+            ))
+            if not result.scalar():
+                logger.info("Migrating schema: Adding 'marketplace_value_avg' to 'vulnerabilities' table")
+                await conn.execute(text("ALTER TABLE vulnerabilities ADD COLUMN marketplace_value_avg DOUBLE PRECISION"))
+
+            result = await conn.execute(text(
+                "SELECT column_name FROM information_schema.columns WHERE table_name='vulnerabilities' AND column_name='marketplace_last_analyzed'"
+            ))
+            if not result.scalar():
+                logger.info("Migrating schema: Adding 'marketplace_last_analyzed' to 'vulnerabilities' table")
+                await conn.execute(text("ALTER TABLE vulnerabilities ADD COLUMN marketplace_last_analyzed TIMESTAMP WITH TIME ZONE"))
                 
     except Exception as e:
         # Don't fail startup if migration fails - might trigger other issues but keep app alive
         logger.error(f"Migration check warning: {e}")
+
+
+
+async def _seed_marketplace_data() -> None:
+    """Seed exploit pricing and financial impact data if they are empty."""
+    from sqlalchemy import select, func
+    
+    try:
+        # Import dynamically to prevent circular dependencies
+        from marketplace_simulation.models import ExploitPricing, FinancialImpact
+        
+        async with async_session_maker() as session:
+            # Check if exploit pricing is empty
+            exploit_count_stmt = select(func.count(ExploitPricing.id))
+            result = await session.execute(exploit_count_stmt)
+            exploit_count = result.scalar() or 0
+            
+            # Check if financial impact is empty
+            finance_count_stmt = select(func.count(FinancialImpact.id))
+            result = await session.execute(finance_count_stmt)
+            finance_count = result.scalar() or 0
+            
+            if exploit_count == 0 or finance_count == 0:
+                logger.info("Marketplace seed data is missing. Running auto-seeding...")
+                from marketplace_simulation.utils.data_importer import import_exploit_pricing, import_financial_impact
+                from pathlib import Path
+                
+                backend_dir = Path(__file__).parent.parent
+                dark_csv = backend_dir / "marketplace_simulation" / "data" / "dark.csv"
+                finance_csv = backend_dir / "marketplace_simulation" / "data" / "finance.csv"
+                
+                if exploit_count == 0 and dark_csv.exists():
+                    logger.info(f"Auto-importing exploit pricing from {dark_csv}")
+                    await import_exploit_pricing(str(dark_csv))
+                    
+                if finance_count == 0 and finance_csv.exists():
+                    logger.info(f"Auto-importing financial impact from {finance_csv}")
+                    await import_financial_impact(str(finance_csv))
+                    
+    except Exception as e:
+        logger.error(f"Failed to auto-seed marketplace data: {e}", exc_info=True)
 
 
 
