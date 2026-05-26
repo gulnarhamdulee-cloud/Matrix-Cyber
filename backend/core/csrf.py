@@ -50,17 +50,9 @@ class CSRFMiddleware(BaseHTTPMiddleware):
         csrf_cookie = request.cookies.get(CSRF_COOKIE_NAME)
         csrf_header = request.headers.get(CSRF_HEADER_NAME)
 
-        # In cross-site context, cookies might be blocked. 
+        # In cross-site context, cookies might be blocked or stale. 
         # If we have a header and it's a valid SIGNED token, we trust it.
         if csrf_header and verify_csrf_token(csrf_header):
-            # If cookie is also present, they MUST match (protection against token substitution)
-            if csrf_cookie and csrf_cookie != csrf_header:
-                logger.warning(f"CSRF token mismatch for {request.url.path}")
-                return JSONResponse(
-                    status_code=403,
-                    content={"detail": "CSRF token missing or incorrect (Mismatch)"}
-                )
-            
             logger.info("CSRF verified via signed header token")
             return await call_next(request)
 
