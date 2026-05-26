@@ -11,17 +11,8 @@ if (typeof window !== 'undefined') {
     console.log('[API] Raw process.env.NEXT_PUBLIC_API_URL:', process.env.NEXT_PUBLIC_API_URL);
     console.log('[API] Initial API_BASE:', API_BASE);
 
-    // Unconditionally force relative paths on localhost to bypass any environment variable conflicts
-    if (
-        window.location.hostname === 'localhost' || 
-        window.location.hostname === '127.0.0.1' ||
-        !API_BASE || 
-        API_BASE.includes('backend') || 
-        API_BASE.includes('localhost')
-    ) {
-        console.log('[API] Local host or internal name detected. Forcing relative paths.');
-        API_BASE = '';
-    }
+    // Unconditionally force relative paths in browser to leverage Next.js rewrites/proxy and ensure same-origin cookies
+    API_BASE = '';
     console.log('[API] Final API_BASE used for requests:', API_BASE);
 }
 

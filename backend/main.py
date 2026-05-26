@@ -90,8 +90,8 @@ async def get_csrf_init(request: Request, response: Response):
             key="CSRF-TOKEN",
             value=csrf_token,
             httponly=False,
-            samesite="lax",
-            secure=False,
+            samesite="none",
+            secure=True,
             path="/"
         )
     
