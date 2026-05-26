@@ -250,10 +250,10 @@ async def _run_backfill(db_url: str):
         count = 0
         for v in vulns:
             try:
-                await MarketplaceService.analyze_vulnerability(int(v.id), session)
+                await MarketplaceService.analyze_vulnerability(v.id, session) # type: ignore
                 count += 1
             except Exception as e:
-                print(f"[Backfill] Failed for vuln {int(v.id)}: {e}")
+                print(f"[Backfill] Failed for vuln {v.id}: {e}")
         print(f"[Backfill] Done: {count}/{len(vulns)} vulnerabilities analyzed.")
 
     await engine.dispose()
