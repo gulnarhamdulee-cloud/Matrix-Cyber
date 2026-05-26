@@ -14,10 +14,8 @@ const nextConfig = {
     },
   },
   async rewrites() {
-    // In production (Docker), always prefer the internal service name
-    const backendUrl = process.env.NODE_ENV === 'production' 
-      ? 'http://backend:8000' 
-      : (process.env.BACKEND_URL || 'http://localhost:8000');
+    const backendUrl = process.env.BACKEND_URL || 
+      (process.env.NODE_ENV === 'production' ? 'http://backend:8000' : 'http://localhost:8000');
     
     console.log('[Proxy] Configuring rewrites with destination:', backendUrl);
     
