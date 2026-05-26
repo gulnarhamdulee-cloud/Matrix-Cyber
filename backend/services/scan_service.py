@@ -151,6 +151,27 @@ class ScanService:
             await db.commit()
             
             print(f"[ScanService] Scan {scan_id} completed. Found {scan.total_vulnerabilities} vulnerabilities.")
+
+            # --- Marketplace Valuation: Auto-analyze all found vulnerabilities ---
+            print(f"[ScanService] Triggering marketplace valuation for scan {scan_id}...")
+            try:
+                from marketplace_simulation.services.marketplace_service import MarketplaceService
+                from sqlalchemy import select as sa_select
+                vuln_results = await db.execute(
+                    sa_select(Vulnerability).where(Vulnerability.scan_id == scan_id)
+                )
+                saved_vulns = vuln_results.scalars().all()
+                val_count = 0
+                for v in saved_vulns:
+                    try:
+                        await MarketplaceService.analyze_vulnerability(v.id, db)
+                        val_count += 1
+                    except Exception as ve:
+                        print(f"[ScanService] Marketplace valuation failed for vuln {v.id}: {ve}")
+                print(f"[ScanService] Marketplace valuation complete: {val_count}/{len(saved_vulns)} analyzed.")
+            except Exception as me:
+                print(f"[ScanService] Marketplace valuation step failed: {me}")
+            # --- End Marketplace Valuation ---
             
         except Exception as e:
             print(f"[ScanService] Scan {scan_id} failed: {e}")

@@ -206,7 +206,27 @@ async def _execute_orchestrator(db: AsyncSession, scan: Scan):
         scan.completed_at = datetime.now(timezone.utc)
         scan.progress = 100
         await db.commit()
-        
+
+        # --- Marketplace Valuation: Auto-analyze all found vulnerabilities ---
+        print(f"[Worker] Triggering marketplace valuation for scan {scan.id}...")
+        try:
+            from marketplace_simulation.services.marketplace_service import MarketplaceService
+            vuln_results = await db.execute(
+                select(Vulnerability).where(Vulnerability.scan_id == scan.id)
+            )
+            saved_vulns = vuln_results.scalars().all()
+            val_count = 0
+            for v in saved_vulns:
+                try:
+                    await MarketplaceService.analyze_vulnerability(v.id, db)
+                    val_count += 1
+                except Exception as ve:
+                    print(f"[Worker] Marketplace valuation failed for vuln {v.id}: {ve}")
+            print(f"[Worker] Marketplace valuation complete: {val_count}/{len(saved_vulns)} vulnerabilities analyzed.")
+        except Exception as me:
+            print(f"[Worker] Marketplace valuation step failed: {me}")
+        # --- End Marketplace Valuation ---
+
     except Exception as e:
         import traceback
         print(f"[Worker] Orchestrator execution failed: {type(e).__name__}: {e}")
