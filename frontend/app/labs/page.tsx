@@ -1,3 +1,5 @@
+'use client';
+
 import React, { useState, useEffect } from 'react';
 import { Database, Code, Terminal, ShieldAlert, ArrowRight, Lock, Server, AlertTriangle } from 'lucide-react';
 import { Navbar } from '../../components/Navbar';
