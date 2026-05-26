@@ -22,6 +22,10 @@ class CSRFMiddleware(BaseHTTPMiddleware):
         if request.method in ("GET", "HEAD", "OPTIONS"):
             response = await call_next(request)
             
+            # If it's the CSRF init endpoint, the route handler already sets the cookie correctly
+            if request.url.path.rstrip('/') == "/api/csrf":
+                return response
+            
             # Ensure cookie is set on all safe requests
             logger.info(f"Ensuring CSRF cookie for {request.url.path} (status: {response.status_code})")
             
