@@ -7,6 +7,10 @@ WORKDIR /app
 COPY package*.json ./
 RUN npm install
 
+# Accept build args and set as env vars so Next.js bakes them in
+ARG NEXT_PUBLIC_API_URL=
+ENV NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL
+
 # Copy source and build
 COPY . .
 # Optimization for 1GB RAM: Disable source maps to save memory during build

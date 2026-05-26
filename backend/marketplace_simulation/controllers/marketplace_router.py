@@ -28,7 +28,7 @@ class ImportRequestId(BaseModel):
 
 # --- Endpoints ---
 
-@router.get("/dashboard", response_model=Dict[str, Any])
+@router.get("/dashboard/", response_model=Dict[str, Any])
 async def get_dashboard(
     project_id: Optional[str] = None,
     db: AsyncSession = Depends(get_db)
@@ -41,7 +41,7 @@ async def get_dashboard(
         print(f"Dashboard error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
-@router.get("/all", response_model=List[Dict[str, Any]])
+@router.get("/all/", response_model=List[Dict[str, Any]])
 async def get_all_valuations(
     limit: int = 50,
     offset: int = 0,
@@ -55,7 +55,7 @@ async def get_all_valuations(
         print(f"All valuations error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
-@router.get("/comparisons", response_model=Dict[str, Any])
+@router.get("/comparisons/", response_model=Dict[str, Any])
 async def get_comparisons(
     db: AsyncSession = Depends(get_db)
 ):
@@ -67,7 +67,7 @@ async def get_comparisons(
         print(f"Comparison error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
-@router.get("/vulnerability/{vulnerability_id}/details", response_model=Dict[str, Any])
+@router.get("/vulnerability/{vulnerability_id}/details/", response_model=Dict[str, Any])
 async def get_vulnerability_details(
     vulnerability_id: int,
     db: AsyncSession = Depends(get_db)
@@ -84,7 +84,7 @@ async def get_vulnerability_details(
         print(f"Details error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
-@router.get("/vulnerability/{vulnerability_id}/explain", response_model=Dict[str, Any])
+@router.get("/vulnerability/{vulnerability_id}/explain/", response_model=Dict[str, Any])
 async def get_easy_explanation(
     vulnerability_id: int,
     db: AsyncSession = Depends(get_db)
@@ -96,7 +96,7 @@ async def get_easy_explanation(
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-@router.get("/scan/{scan_id}/explain", response_model=Dict[str, Any])
+@router.get("/scan/{scan_id}/explain/", response_model=Dict[str, Any])
 async def get_scan_explanation(
     scan_id: int,
     db: AsyncSession = Depends(get_db)
@@ -108,7 +108,7 @@ async def get_scan_explanation(
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-@router.post("/analyze/{vulnerability_id}", response_model=Dict[str, Any])
+@router.post("/analyze/{vulnerability_id}/", response_model=Dict[str, Any])
 async def analyze_vulnerability(
     vulnerability_id: int,
     request: AnalyzeRequest,
@@ -128,7 +128,7 @@ async def analyze_vulnerability(
         print(f"Analysis error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
-@router.post("/import", response_model=Dict[str, Any])
+@router.post("/import/", response_model=Dict[str, Any])
 async def trigger_import(
     request: ImportRequestId,
     # current_user: User = Depends(get_current_admin_user) # TODO: Add Auth when available

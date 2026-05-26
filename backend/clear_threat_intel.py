@@ -9,12 +9,12 @@ from models.vulnerability import Vulnerability
 
 async def clear_bad_intel():
     async with async_session_factory() as session:
-        # Find XSS Reflected vulnerabilities
-        query = select(Vulnerability).where(cast(Vulnerability.vulnerability_type, String).ilike('%XSS%'))
+        # Find all vulnerabilities
+        query = select(Vulnerability)
         result = await session.execute(query)
         vulns = result.scalars().all()
         
-        print(f"Found {len(vulns)} XSS related vulnerabilities.")
+        print(f"Found {len(vulns)} vulnerabilities total.")
         count = 0
         for v in vulns:
             if v.threat_intelligence:

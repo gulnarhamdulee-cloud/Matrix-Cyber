@@ -96,6 +96,7 @@ class Organization(Base):
     """Organization/team model for multi-tenancy."""
     
     __tablename__ = "organizations"
+    __table_args__ = {"extend_existing": True}
     
     id = Column(Integer, primary_key=True, index=True)
     
@@ -201,6 +202,7 @@ class OrganizationMember(Base):
     
     __table_args__ = (
         Index('idx_org_member_org_user', organization_id, user_id, unique=True),
+        {"extend_existing": True}
     )
     
     def __repr__(self):
@@ -253,6 +255,7 @@ class APIToken(Base):
     __table_args__ = (
         Index('idx_token_user_active', user_id, is_active),
         Index('idx_token_expires', expires_at),
+        {"extend_existing": True}
     )
     
     @staticmethod
@@ -349,6 +352,7 @@ class UserActivity(Base):
     __table_args__ = (
         Index('idx_activity_user_type', user_id, activity_type),
         Index('idx_activity_created', created_at),
+        {"extend_existing": True}
     )
     
     def __repr__(self):
@@ -531,6 +535,7 @@ class User(Base):
         Index('idx_user_email_active', email, is_active),
         Index('idx_user_subscription', subscription_tier, subscription_end),
         Index('idx_user_oauth', oauth_provider, oauth_id),
+        {"extend_existing": True}
     )
     
     # ========================================================================

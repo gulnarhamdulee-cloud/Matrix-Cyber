@@ -204,6 +204,7 @@ class Scan(Base, AuditMixin):
         Index('idx_scan_status_created', "status", "created_at"),
         Index('idx_scan_user_status', "user_id", "status"),
         Index('idx_scan_completed', "completed_at"),
+        {"extend_existing": True}
     )
     
     # ========================================================================

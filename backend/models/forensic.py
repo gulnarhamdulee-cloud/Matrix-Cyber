@@ -17,6 +17,7 @@ class ForensicRecord(Base):
     Links a scan to its forensic metadata, hash manifests, and integrity status.
     """
     __tablename__ = "forensic_records"
+    __table_args__ = {"extend_existing": True}
 
     id = Column(Integer, primary_key=True, index=True)
     scan_id = Column(Integer, ForeignKey("scans.id", ondelete="CASCADE"), nullable=False, unique=True, index=True)
@@ -68,6 +69,7 @@ class ForensicTimeline(Base):
     Chronological, immutable record of every major event in a scan.
     """
     __tablename__ = "forensic_timeline"
+    __table_args__ = {"extend_existing": True}
 
     id = Column(Integer, primary_key=True, index=True)
     forensic_record_id = Column(Integer, ForeignKey("forensic_records.id", ondelete="CASCADE"), nullable=False, index=True)
@@ -107,6 +109,7 @@ class ForensicArtifact(Base):
     Store for raw data and artifacts collected during a scan.
     """
     __tablename__ = "forensic_artifacts"
+    __table_args__ = {"extend_existing": True}
 
     id = Column(Integer, primary_key=True, index=True)
     forensic_record_id = Column(Integer, ForeignKey("forensic_records.id", ondelete="CASCADE"), nullable=False, index=True)

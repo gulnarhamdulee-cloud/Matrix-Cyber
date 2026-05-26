@@ -2,16 +2,28 @@
  * API client for Matrix backend
  */
 
-// detect if we are in browser and if API_BASE is internal
+declare let process: any;
+
 let API_BASE = process.env.NEXT_PUBLIC_API_URL || '';
+
 if (typeof window !== 'undefined') {
-    // In browser: if API_BASE is empty OR contains internal docker names, force relative path
-    if (!API_BASE || API_BASE.includes('backend') || API_BASE.includes('localhost')) {
-        console.log('[API] Browser detected internal/empty API_BASE, switching to relative paths.');
+    console.log('[API] Browser environment detected.');
+    console.log('[API] Raw process.env.NEXT_PUBLIC_API_URL:', process.env.NEXT_PUBLIC_API_URL);
+    console.log('[API] Initial API_BASE:', API_BASE);
+
+    // Unconditionally force relative paths on localhost to bypass any environment variable conflicts
+    if (
+        window.location.hostname === 'localhost' || 
+        window.location.hostname === '127.0.0.1' ||
+        !API_BASE || 
+        API_BASE.includes('backend') || 
+        API_BASE.includes('localhost')
+    ) {
+        console.log('[API] Local host or internal name detected. Forcing relative paths.');
         API_BASE = '';
     }
+    console.log('[API] Final API_BASE used for requests:', API_BASE);
 }
-console.log('[API] Initialized with API_BASE:', API_BASE);
 
 interface ApiError {
     detail: string;

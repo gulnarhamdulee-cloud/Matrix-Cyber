@@ -256,9 +256,13 @@ async def get_threat_intelligence(
             detail="Vulnerability not found"
         )
 
-    # If intelligence already exists, return it
+    # If intelligence already exists and is not a placeholder, return it
     if vulnerability.threat_intelligence:
-        return vulnerability.threat_intelligence
+        intel = vulnerability.threat_intelligence
+        # If it is a valid threat intel (not placeholder), return it
+        if intel.get("why_trending") != "N/A" and intel.get("attack_summary") != "Analysis unavailable":
+            return intel
+
 
     # Generate intelligence
     try:

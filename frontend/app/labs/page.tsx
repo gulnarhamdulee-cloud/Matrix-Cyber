@@ -1,10 +1,23 @@
-'use client';
-
-import React from 'react';
-import { Database, Code, Terminal, ShieldAlert, ArrowRight, Lock, Server } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { Database, Code, Terminal, ShieldAlert, ArrowRight, Lock, Server, AlertTriangle } from 'lucide-react';
 import { Navbar } from '../../components/Navbar';
+import { api } from '@/lib/matrix_api';
 
 export default function LabsPage() {
+  const [isDockerAvailable, setIsDockerAvailable] = useState<boolean | null>(null);
+
+  useEffect(() => {
+    const checkDocker = async () => {
+      try {
+        const res = await api.checkDockerStatus();
+        setIsDockerAvailable(res.status === 'available');
+      } catch (e) {
+        setIsDockerAvailable(false);
+      }
+    };
+    checkDocker();
+  }, []);
+
   const labs = [
     {
       id: 'sql_injection',
@@ -50,6 +63,19 @@ export default function LabsPage() {
       <Navbar />
 
       <main className="max-w-7xl mx-auto px-6 py-24 md:py-32">
+        {isDockerAvailable === false && (
+          <div className="mb-10 p-5 rounded-2xl bg-amber-500/10 border-2 border-amber-500/30 text-amber-600 flex items-start gap-4 animate-slide-up">
+            <AlertTriangle className="w-6 h-6 shrink-0 mt-0.5" />
+            <div>
+              <h4 className="font-semibold text-lg mb-1">Exploit Labs Disabled in Cloud Deployment</h4>
+              <p className="text-sm leading-relaxed text-text-secondary">
+                Render and other serverless platforms do not support running background Docker containers.
+                To practice on these target labs, please run Matrix locally using <code className="bg-amber-500/10 px-1.5 py-0.5 rounded text-xs font-semibold">docker-compose up</code> or deploy to a GCP Compute Engine instance.
+              </p>
+            </div>
+          </div>
+        )}
+
         <div className="text-center mb-20 space-y-6 animate-slide-up">
           <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-accent-primary/5 border border-accent-primary/10 text-accent-primary text-xs font-bold tracking-wider mb-4">
             <span className="w-2 h-2 rounded-full bg-accent-primary animate-pulse"></span>
@@ -110,9 +136,14 @@ export default function LabsPage() {
 
                 <button
                   onClick={() => window.open(`/sandbox?type=${lab.id}&id=${Math.floor(Math.random() * 1000)}`, '_blank')}
-                  className="w-full py-4 rounded-xl font-semibold text-center flex items-center justify-center gap-2 transition-all duration-300 bg-text-primary text-bg-primary hover:bg-accent-primary hover:text-white shadow-lg hover:shadow-xl group-hover:scale-[1.02]"
+                  disabled={isDockerAvailable === false}
+                  className={`w-full py-4 rounded-xl font-semibold text-center flex items-center justify-center gap-2 transition-all duration-300 ${
+                    isDockerAvailable === false
+                      ? 'bg-warm-100 text-text-muted cursor-not-allowed border border-warm-200'
+                      : 'bg-text-primary text-bg-primary hover:bg-accent-primary hover:text-white shadow-lg hover:shadow-xl group-hover:scale-[1.02]'
+                  }`}
                 >
-                  INITIALIZE LAB
+                  {isDockerAvailable === false ? 'LAB DISABLED' : 'INITIALIZE LAB'}
                   <ArrowRight className="w-4 h-4" />
                 </button>
               </div>

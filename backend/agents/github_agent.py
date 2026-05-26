@@ -1002,6 +1002,22 @@ Do not use placeholders like "...rest of code...". The user may want to apply th
             # Update rate limit info
             self._update_rate_limit_info(response)
 
+            # Handle expired/invalid token by falling back to unauthenticated for public repos
+            if response.status_code == 401 and self.github_token:
+                logger.warning("GitHub token returned 401 Unauthorized (Bad credentials). Falling back to unauthenticated request...")
+                self.github_token = None
+                headers_no_token = headers.copy()
+                headers_no_token.pop('Authorization', None)
+                if method.upper() == "GET":
+                    response = await client.get(url, headers=headers_no_token, timeout=GithubAgentConfig.DEFAULT_TIMEOUT)
+                elif method.upper() == "POST":
+                    response = await client.post(url, headers=headers_no_token, json=json_data, timeout=GithubAgentConfig.DEFAULT_TIMEOUT)
+                elif method.upper() == "PUT":
+                    response = await client.put(url, headers=headers_no_token, json=json_data, timeout=GithubAgentConfig.DEFAULT_TIMEOUT)
+                elif method.upper() == "PATCH":
+                    response = await client.patch(url, headers=headers_no_token, json=json_data, timeout=GithubAgentConfig.DEFAULT_TIMEOUT)
+                self._update_rate_limit_info(response)
+
             # Handle rate limiting
             if response.status_code == 403 and 'rate limit' in response.text.lower():
                 if retry_count < GithubAgentConfig.MAX_RETRIES:
