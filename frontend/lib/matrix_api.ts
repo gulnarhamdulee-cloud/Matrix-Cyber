@@ -439,6 +439,10 @@ export class MatrixApiClient {
         return this.request<{ explanation: string }>(`/api/marketplace/vulnerability/${id}/explain`);
     }
 
+    async getScanExplanation(scanId: number | string): Promise<{ explanation: string }> {
+        return this.request<{ explanation: string }>(`/api/marketplace/scan/${scanId}/explain`);
+    }
+
     async checkDockerStatus(): Promise<any> {
         return this.request<any>('/api/exploit/check-docker/');
     }

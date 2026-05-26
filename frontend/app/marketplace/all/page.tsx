@@ -37,7 +37,7 @@ export default function MarketplaceAllPage() {
   const fetchAllValuations = async () => {
     try {
       setLoading(true);
-      const id = scanId ? parseInt(scanId) : null;
+      const id = scanId ? parseInt(scanId) : undefined;
       const data = await api.getMarketplaceAll(50, 0, id);
       if (data) {
         // Map the real data to our table format

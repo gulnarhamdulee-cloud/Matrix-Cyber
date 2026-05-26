@@ -1035,7 +1035,7 @@ export default function ScanPage() {
             {
                 showWafWarningModal && (
                     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-                        <div className="bg-white rounded-lg shadow-2xl max-w-md w-full overflow-hidden">
+                        <div className="bg-white rounded-lg shadow-2xl max-w-md w-full max-h-[90vh] flex flex-col overflow-hidden">
                             {/* Header */}
                             <div className="bg-amber-50 border-b border-amber-200 p-4">
                                 <div className="flex items-center gap-3">
@@ -1050,7 +1050,7 @@ export default function ScanPage() {
                             </div>
 
                             {/* Content */}
-                            <div className="p-5">
+                            <div className="p-5 overflow-y-auto flex-1">
                                 <div className="bg-red-50 border border-red-200 rounded-md p-3 mb-4">
                                     <p className="text-sm text-red-800 font-medium mb-2">⚠️ Warning: Potential Risks</p>
                                     <ul className="text-xs text-red-700 space-y-1">
@@ -1116,7 +1116,7 @@ export default function ScanPage() {
             {
                 showPreScanWarning && (
                     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-                        <div className="bg-white rounded-lg shadow-2xl max-w-lg w-full overflow-hidden">
+                        <div className="bg-white rounded-lg shadow-2xl max-w-lg w-full max-h-[90vh] flex flex-col overflow-hidden">
                             {/* Header */}
                             <div className="bg-blue-50 border-b border-blue-200 p-5">
                                 <div className="flex items-center gap-3">
@@ -1131,7 +1131,7 @@ export default function ScanPage() {
                             </div>
 
                             {/* Content */}
-                            <div className="p-5 space-y-4">
+                            <div className="p-5 space-y-4 overflow-y-auto flex-1">
                                 <div className="bg-amber-50 border border-amber-200 rounded-md p-4">
                                     <p className="text-sm text-amber-900 font-semibold mb-2">⚠️ Scanning Production Applications</p>
                                     <p className="text-sm text-amber-800 leading-relaxed">
