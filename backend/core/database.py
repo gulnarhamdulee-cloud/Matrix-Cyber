@@ -5,7 +5,7 @@ This module provides async SQLAlchemy configuration with connection pooling,
 session management, and database initialization utilities for the Matrix
 security scanner.
 """
-from typing import AsyncGenerator, Optional, List
+from typing import AsyncGenerator, Optional, List, Any
 from contextlib import asynccontextmanager
 from sqlalchemy.ext.asyncio import (
     create_async_engine,
@@ -65,7 +65,7 @@ class DatabaseConfig:
             is_sqlite = "sqlite" in db_url.lower()
             
             # Engine configuration - SQLite doesn't support pool settings
-            engine_args = {
+            engine_args: dict[str, Any] = {
                 "echo": DB_ECHO_ENABLED,
                 "future": True,
             }
@@ -138,7 +138,7 @@ class DatabaseConfig:
             finally:
                 cursor.close()
     
-    def _get_safe_url(self, url: str = None) -> str:
+    def _get_safe_url(self, url: Optional[str] = None) -> str:
         """
         Get database URL with credentials masked for logging.
         
