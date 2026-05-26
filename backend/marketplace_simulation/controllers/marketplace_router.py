@@ -1,5 +1,4 @@
-
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status, BackgroundTasks
 from sqlalchemy.ext.asyncio import AsyncSession
 from typing import List, Optional, Dict, Any
 from core.database import get_db
@@ -13,6 +12,8 @@ from pydantic import BaseModel
 import subprocess
 import sys
 import os
+from api.deps import get_current_user
+from models.user import User
 
 router = APIRouter(
     prefix="/marketplace",
@@ -233,3 +234,60 @@ async def calculate_impact(
         return await FinancialImpactService.calculate_breach_impact(db, vuln, profile)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+async def _run_backfill(db_url: str):
+    """Background task: analyze all unanalyzed vulnerabilities."""
+    from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
+    from sqlalchemy.orm import sessionmaker as sm
+
+    engine = create_async_engine(db_url)
+    session_factory = sm(engine, class_=AsyncSession, expire_on_commit=False)
+
+    async with session_factory() as session:
+        result = await session.execute(
+            select(Vulnerability).where(Vulnerability.marketplace_value_avg.is_(None))
+        )
+        vulns = result.scalars().all()
+        count = 0
+        for v in vulns:
+            try:
+                await MarketplaceService.analyze_vulnerability(v.id, session)
+                count += 1
+            except Exception as e:
+                print(f"[Backfill] Failed for vuln {v.id}: {e}")
+        print(f"[Backfill] Done: {count}/{len(vulns)} vulnerabilities analyzed.")
+
+    await engine.dispose()
+
+
+@router.post("/backfill/", response_model=Dict[str, Any])
+async def backfill_valuations(
+    background_tasks: BackgroundTasks,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Trigger marketplace valuation backfill for all unanalyzed vulnerabilities.
+    Requires authentication. Runs as a background task.
+    """
+    from config import get_settings
+    settings = get_settings()
+
+    # Count unanalyzed vulnerabilities
+    result = await db.execute(
+        select(Vulnerability).where(Vulnerability.marketplace_value_avg.is_(None))
+    )
+    unanalyzed = result.scalars().all()
+
+    if not unanalyzed:
+        return {"status": "skipped", "message": "All vulnerabilities already have valuations.", "queued": 0}
+
+    # Kick off in background so the response returns immediately
+    background_tasks.add_task(_run_backfill, settings.database_url)
+
+    return {
+        "status": "queued",
+        "message": f"Backfill started for {len(unanalyzed)} vulnerabilities. Check server logs for progress.",
+        "queued": len(unanalyzed),
+    }
