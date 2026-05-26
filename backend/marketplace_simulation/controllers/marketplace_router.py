@@ -118,9 +118,8 @@ async def analyze_vulnerability(
     """Analyze a specific vulnerability (Valuation + Impact + ROI)."""
     try:
         analysis = await MarketplaceService.analyze_vulnerability(
-            vulnerability_id, 
-            db, 
-            request.companyProfile
+            vulnerability_id,
+            db
         )
         return analysis
     except ValueError as e:
@@ -238,11 +237,10 @@ async def calculate_impact(
 
 async def _run_backfill(db_url: str):
     """Background task: analyze all unanalyzed vulnerabilities."""
-    from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
-    from sqlalchemy.orm import sessionmaker as sm
+    from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
 
     engine = create_async_engine(db_url)
-    session_factory = sm(engine, class_=AsyncSession, expire_on_commit=False)
+    session_factory = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
 
     async with session_factory() as session:
         result = await session.execute(
