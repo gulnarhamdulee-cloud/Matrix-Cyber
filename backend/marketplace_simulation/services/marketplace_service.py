@@ -28,7 +28,7 @@ class MarketplaceService:
         
         query = query.limit(limit)
         result = await db.execute(query)
-        return result.scalars().all()
+        return list(result.scalars().all())
 
     @staticmethod
     async def get_financial_impact(db: AsyncSession, 
@@ -40,7 +40,7 @@ class MarketplaceService:
             
         query = query.limit(limit)
         result = await db.execute(query)
-        return result.scalars().all()
+        return list(result.scalars().all())
 
     @staticmethod
     async def get_valuation(db: AsyncSession, vulnerability_id: int) -> Optional[VulnerabilityValuation]:
@@ -128,8 +128,8 @@ class MarketplaceService:
         
         # Update vulnerability - use values directly to avoid session issues
         # and ensure we aren't triggering any lazy loads
-        vuln.marketplace_value_avg = float(valuation_data["exploitValue"]["avg"])
-        vuln.marketplace_last_analyzed = datetime.now(timezone.utc)
+        vuln.marketplace_value_avg = float(valuation_data["exploitValue"]["avg"])  # type: ignore
+        vuln.marketplace_last_analyzed = datetime.now(timezone.utc)  # type: ignore
         
         await db.commit()
 
@@ -269,7 +269,7 @@ class MarketplaceService:
                 "id": v.id,
                 "title": v.title,
                 "severity": v.severity.value,
-                "value": float(v.marketplace_value_avg),
+                "value": float(v.marketplace_value_avg),  # type: ignore
                 "lastAnalyzed": v.marketplace_last_analyzed.isoformat() if v.marketplace_last_analyzed else None
             })
         return output
@@ -279,17 +279,20 @@ class MarketplaceService:
         """Aggregate statistics for the dashboard."""
         
         # 1. Total Value & Count
-        # Fetch latest valuation summary
+        # Use LEFT JOIN so dashboard shows data even if valuation table is empty
         res = await db.execute(
             select(
                 func.count(Vulnerability.id),
                 func.sum(Vulnerability.marketplace_value_avg),
                 func.sum(VulnerabilityValuation.total_financial_impact_avg)
-            ).select_from(Vulnerability).join(
+            ).select_from(Vulnerability).outerjoin(
                 VulnerabilityValuation, Vulnerability.id == VulnerabilityValuation.vulnerability_id
             ).where(Vulnerability.marketplace_value_avg > 0)
         )
-        count, total_value, total_impact = res.one()
+        row = res.first()
+        count = row[0] if row else 0
+        total_value = row[1] if row else None
+        total_impact = row[2] if row else None
         
         total_dark_web_value = total_value or 0
         total_financial_impact = total_impact or 0
@@ -312,7 +315,7 @@ class MarketplaceService:
                 "id": vuln.id,
                 "title": vuln.title,
                 "severity": vuln.severity.value,
-                "value": float(vuln.marketplace_value_avg)
+                "value": float(vuln.marketplace_value_avg)  # type: ignore
             })
 
         return {
@@ -352,6 +355,8 @@ class MarketplaceService:
         """
         Generates a natural language explanation of the marketplace metrics for a non-technical user.
         """
+        vuln: Optional[Vulnerability] = None
+        analysis: Optional[Dict[str, Any]] = None
         try:
             # 1. Fetch data
             analysis = await cls.analyze_vulnerability(vulnerability_id, db)
@@ -360,7 +365,7 @@ class MarketplaceService:
             
             if not vuln:
                 return "Vulnerability details not found."
-
+            
             # 2. Construct prompt
             prompt = f"""
             Explain the following cybersecurity financial metrics in simple, non-technical language for a general developer or business owner.
@@ -390,13 +395,20 @@ class MarketplaceService:
             return response.get("content", "I'm sorry, I couldn't generate an explanation at this time.")
         except Exception as e:
             # Fallback for when LLM is unavailable
+            vuln_title = vuln.title if vuln else "Unknown Vulnerability"
+            vuln_severity = vuln.severity.value if (vuln and vuln.severity) else "unknown"
+            
+            val_avg = analysis['exploitValue']['avg'] if (analysis and 'exploitValue' in analysis) else 0.0
+            fin_avg = analysis['financialImpact']['avgTotal'] if (analysis and 'financialImpact' in analysis) else 0.0
+            roi = analysis['roiAnalysis']['roi'] if (analysis and 'roiAnalysis' in analysis) else "Unknown"
+
             return f"""### 💡 Market Intelligence Brief (Offline Mode)
 
-Complete market analysis is currently unavailable. However, based on the vulnerability **{vuln.title}** and its **{vuln.severity.value}** severity, here is a preliminary assessment:
+Complete market analysis is currently unavailable. However, based on the vulnerability **{vuln_title}** and its **{vuln_severity}** severity, here is a preliminary assessment:
 
-- **Estimated Dark Web Value:** ${analysis['exploitValue']['avg']:,.2f}
-- **Potential Financial Risk:** ${analysis['financialImpact']['avgTotal']:,.2f}
-- **ROI on Fix:** {analysis['roiAnalysis']['roi']}
+- **Estimated Dark Web Value:** ${val_avg:,.2f}
+- **Potential Financial Risk:** ${fin_avg:,.2f}
+- **ROI on Fix:** {roi}
 
 **Action Item:** This vulnerability represents a tangible financial risk. Immediate remediation is recommended to prevent potential exploitation and data loss."""
 
@@ -415,11 +427,11 @@ Complete market analysis is currently unavailable. However, based on the vulnera
 
             # 2. Aggregate stats
             severity_counts = {}
-            total_value = 0
+            total_value = 0.0
             for f in findings:
                 sev = f.severity.value
                 severity_counts[sev] = severity_counts.get(sev, 0) + 1
-                total_value += float(f.marketplace_value_avg or 0)
+                total_value += float(f.marketplace_value_avg or 0)  # type: ignore
 
             findings_summary = "\n".join([f"- {f.title} ({f.severity.value}): {f.description[:100]}..." for f in findings[:10]])
 
