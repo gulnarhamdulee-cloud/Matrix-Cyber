@@ -2,9 +2,11 @@
 from datetime import datetime, timezone
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, desc, or_, case
+from sqlalchemy.orm import joinedload
 from typing import List, Optional, Dict, Any
 from marketplace_simulation.models import ExploitPricing, FinancialImpact, VulnerabilityValuation
 from models import Vulnerability, Severity
+from models.scan import Scan
 
 # Force registration for foreign key mapping
 import models.vulnerability
@@ -133,9 +135,18 @@ class MarketplaceService:
         
         await db.commit()
 
+        # Fetch the scan to get target_url for display
+        scan_stmt = select(Scan).where(Scan.id == vuln.scan_id)
+        scan_result = await db.execute(scan_stmt)
+        scan = scan_result.scalar_one_or_none()
+        target_url = scan.target_url if scan else None
+        target_name = scan.target_name or scan.target_domain if scan else None
+
         return {
             "vulnerabilityId": vulnerability_id,
             "scanId": vuln.scan_id,
+            "targetUrl": target_url,
+            "targetName": target_name,
             "title": vuln.title,
             "severity": vuln.severity.value,
             "status": vuln.status.value,
@@ -249,73 +260,120 @@ class MarketplaceService:
         ]
 
     @classmethod
-    async def get_all_valuations(cls, db: AsyncSession, limit: int = 50, offset: int = 0, scan_id: Optional[int] = None) -> List[Dict[str, Any]]:
-        """Fetch all vulnerabilities that have been analyzed, ordered by recency. Optionally filter by scan_id."""
-        query = select(Vulnerability).where(
-            Vulnerability.marketplace_value_avg.isnot(None)
+    async def get_all_valuations(cls, db: AsyncSession, limit: int = 50, offset: int = 0, scan_id: Optional[int] = None, user_id: Optional[int] = None) -> List[Dict[str, Any]]:
+        """Fetch all vulnerabilities that have been analyzed for a specific user, ordered by recency."""
+        # Join with scans to support user-based filtering and include target info
+        query = (
+            select(Vulnerability, Scan.target_url, Scan.target_name, Scan.target_domain)
+            .join(Scan, Vulnerability.scan_id == Scan.id)
+            .where(Vulnerability.marketplace_value_avg.isnot(None))
         )
-        
+
+        if user_id:
+            query = query.where(Scan.user_id == user_id)
+
         if scan_id:
             query = query.where(Vulnerability.scan_id == scan_id)
-            
+
         stmt = query.order_by(desc(Vulnerability.marketplace_last_analyzed)).limit(limit).offset(offset)
-        
+
         result = await db.execute(stmt)
-        vulns = result.scalars().all()
-        
+        rows = result.all()
+
         output = []
-        for v in vulns:
+        for row in rows:
+            v = row[0]
+            raw_url = row[1]
+            t_name = row[2] or row[3]  # target_name or target_domain
+            # Build a clean display name: use target_name if set, else domain, else full URL
+            try:
+                from urllib.parse import urlparse
+                parsed = urlparse(raw_url or "")
+                display_target = t_name or parsed.netloc or raw_url or "Unknown Source"
+            except Exception:
+                display_target = raw_url or "Unknown Source"
+
             output.append({
                 "id": v.id,
                 "title": v.title,
                 "severity": v.severity.value,
                 "value": float(v.marketplace_value_avg),  # type: ignore
-                "lastAnalyzed": v.marketplace_last_analyzed.isoformat() if v.marketplace_last_analyzed else None
+                "lastAnalyzed": v.marketplace_last_analyzed.isoformat() if v.marketplace_last_analyzed else None,
+                "scanId": v.scan_id,
+                "targetUrl": raw_url,
+                "targetDisplay": display_target,
             })
         return output
 
     @classmethod
-    async def get_dashboard_stats(cls, db: AsyncSession) -> Dict[str, Any]:
-        """Aggregate statistics for the dashboard."""
-        
-        # 1. Total Value & Count
-        # Use LEFT JOIN so dashboard shows data even if valuation table is empty
-        res = await db.execute(
+    async def get_dashboard_stats(cls, db: AsyncSession, user_id: Optional[int] = None) -> Dict[str, Any]:
+        """Aggregate statistics for the dashboard — filtered to the current user's scans."""
+
+        # 1. Total Value & Count — join through Scan to filter by user
+        base_query = (
             select(
                 func.count(Vulnerability.id),
                 func.sum(Vulnerability.marketplace_value_avg),
                 func.sum(VulnerabilityValuation.total_financial_impact_avg)
-            ).select_from(Vulnerability).outerjoin(
-                VulnerabilityValuation, Vulnerability.id == VulnerabilityValuation.vulnerability_id
-            ).where(Vulnerability.marketplace_value_avg > 0)
+            )
+            .select_from(Vulnerability)
+            .join(Scan, Vulnerability.scan_id == Scan.id)
+            .outerjoin(VulnerabilityValuation, Vulnerability.id == VulnerabilityValuation.vulnerability_id)
+            .where(Vulnerability.marketplace_value_avg > 0)
         )
+        if user_id:
+            base_query = base_query.where(Scan.user_id == user_id)
+
+        res = await db.execute(base_query)
         row = res.first()
         count = row[0] if row else 0
         total_value = row[1] if row else None
         total_impact = row[2] if row else None
-        
+
         total_dark_web_value = total_value or 0
         total_financial_impact = total_impact or 0
-        
-        # 2. Vulnerability Counts by Severity
-        severities = await db.execute(
-            select(Vulnerability.severity, func.count(Vulnerability.id)).group_by(Vulnerability.severity)
+
+        # 2. Vulnerability Counts by Severity (user-scoped)
+        sev_query = (
+            select(Vulnerability.severity, func.count(Vulnerability.id))
+            .join(Scan, Vulnerability.scan_id == Scan.id)
+            .group_by(Vulnerability.severity)
         )
+        if user_id:
+            sev_query = sev_query.where(Scan.user_id == user_id)
+        severities = await db.execute(sev_query)
         severity_counts = {row[0].value: row[1] for row in severities.all()}
-        
-        # 3. Recent Valuations (Last 5)
-        recent_stmt = select(Vulnerability).where(
-            Vulnerability.marketplace_value_avg > 0
-        ).order_by(desc(Vulnerability.marketplace_last_analyzed)).limit(5)
-        
-        recent_result = await db.execute(recent_stmt)
+
+        # 3. Recent Valuations top 5 (user-scoped)
+        recent_query = (
+            select(Vulnerability, Scan.target_url, Scan.target_name, Scan.target_domain)
+            .join(Scan, Vulnerability.scan_id == Scan.id)
+            .where(Vulnerability.marketplace_value_avg > 0)
+            .order_by(desc(Vulnerability.marketplace_last_analyzed))
+            .limit(5)
+        )
+        if user_id:
+            recent_query = recent_query.where(Scan.user_id == user_id)
+
+        recent_result = await db.execute(recent_query)
         recent_data = []
-        for vuln in recent_result.scalars().all():
+        for row in recent_result.all():
+            vuln = row[0]
+            raw_url = row[1]
+            t_name = row[2] or row[3]
+            try:
+                from urllib.parse import urlparse
+                parsed = urlparse(raw_url or "")
+                display_target = t_name or parsed.netloc or raw_url or "Unknown Source"
+            except Exception:
+                display_target = raw_url or "Unknown Source"
             recent_data.append({
                 "id": vuln.id,
                 "title": vuln.title,
                 "severity": vuln.severity.value,
-                "value": float(vuln.marketplace_value_avg)  # type: ignore
+                "value": float(vuln.marketplace_value_avg),  # type: ignore
+                "targetUrl": raw_url,
+                "targetDisplay": display_target,
             })
 
         return {
@@ -329,7 +387,7 @@ class MarketplaceService:
             "breakdown": {
                 "bySeverity": severity_counts
             },
-            "top5ByValue": recent_data # Renamed conceptually to "Recent" in the UI
+            "top5ByValue": recent_data
         }
 
     @classmethod

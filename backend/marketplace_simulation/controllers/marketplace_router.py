@@ -32,11 +32,12 @@ class ImportRequestId(BaseModel):
 @router.get("/dashboard", response_model=Dict[str, Any])
 async def get_dashboard(
     project_id: Optional[str] = None,
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
 ):
-    """Get overview of marketplace statistics."""
+    """Get overview of marketplace statistics for the current user."""
     try:
-        stats = await MarketplaceService.get_dashboard_stats(db)
+        stats = await MarketplaceService.get_dashboard_stats(db, user_id=current_user.id)
         return stats
     except Exception as e:
         print(f"Dashboard error: {e}")
@@ -47,11 +48,12 @@ async def get_all_valuations(
     limit: int = 50,
     offset: int = 0,
     scan_id: Optional[int] = Query(None, description="Filter by Scan ID"),
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
 ):
-    """Get all vulnerabilities that have been analyzed, ordered by recency."""
+    """Get all vulnerabilities analyzed for the current user, ordered by recency."""
     try:
-        return await MarketplaceService.get_all_valuations(db, limit, offset, scan_id)
+        return await MarketplaceService.get_all_valuations(db, limit, offset, scan_id, user_id=current_user.id)
     except Exception as e:
         print(f"All valuations error: {e}")
         raise HTTPException(status_code=500, detail=str(e))

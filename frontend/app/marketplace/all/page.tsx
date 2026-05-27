@@ -24,6 +24,9 @@ interface ValuationItem {
   impact: number;
   roi: string;
   lastAnalyzed: string;
+  targetDisplay?: string;
+  targetUrl?: string;
+  scanId?: number;
 }
 
 export default function MarketplaceAllPage() {
@@ -46,9 +49,12 @@ export default function MarketplaceAllPage() {
           title: v.title,
           severity: v.severity,
           value: v.value,
-          impact: v.value * 12.5, // Refined multiplier
+          impact: v.value * 12.5,
           roi: "90,000%",
-          lastAnalyzed: v.lastAnalyzed ? new Date(v.lastAnalyzed).toLocaleTimeString() : "Recently"
+          lastAnalyzed: v.lastAnalyzed ? new Date(v.lastAnalyzed).toLocaleTimeString() : "Recently",
+          targetDisplay: v.targetDisplay,
+          targetUrl: v.targetUrl,
+          scanId: v.scanId,
         }));
         setItems(mapped);
       }
@@ -154,6 +160,12 @@ export default function MarketplaceAllPage() {
                           {item.title}
                         </div>
                         <div className="text-xs text-text-muted mt-0.5">ID: VULN-{item.id.toString().padStart(4, '0')}</div>
+                        {item.targetDisplay && (
+                          <div className="text-xs text-blue-600 mt-0.5 flex items-center gap-1">
+                            <span className="w-1 h-1 rounded-full bg-blue-400 inline-block" />
+                            {item.targetDisplay}
+                          </div>
+                        )}
                       </td>
                       <td className="px-6 py-4">
                         <span className={`px-2 py-1 rounded-full text-[10px] font-bold uppercase tracking-tighter ${item.severity.toLowerCase() === 'critical' ? 'bg-red-100 text-red-700' :

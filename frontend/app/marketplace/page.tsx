@@ -29,6 +29,8 @@ interface MarketStats {
       title: string;
       severity: string;
       value: number;
+      targetDisplay?: string;
+      targetUrl?: string;
     } | null;
   };
   top5ByValue: Array<{
@@ -36,6 +38,8 @@ interface MarketStats {
     title: string;
     severity: string;
     value: number;
+    targetDisplay?: string;
+    targetUrl?: string;
   }>;
 }
 
@@ -216,6 +220,12 @@ export default function MarketplacePage() {
                                     {item.title}
                                   </h4>
                                   <p className="text-xs text-text-muted mt-1 font-mono">Status: ACTIVE_INFILTRATION_PROTOCOL</p>
+                                  {item.targetDisplay && (
+                                    <p className="text-xs text-emerald-600 mt-1 font-medium flex items-center gap-1">
+                                      <span className="inline-block w-1.5 h-1.5 rounded-full bg-emerald-400" />
+                                      {item.targetDisplay}
+                                    </p>
+                                  )}
                                 </div>
                                 <div className="flex items-center gap-2 text-[10px] font-bold text-emerald-500 uppercase tracking-widest opacity-0 group-hover:opacity-100 transition-all translate-x-4 group-hover:translate-x-0">
                                   Access Intel <ArrowRight className="w-3 h-3" />
