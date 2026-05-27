@@ -27,57 +27,61 @@ export function Navbar() {
 
     return (
         <header className={`glass-nav sticky top-0 z-50 transition-transform duration-500 ${isVisible ? 'translate-y-0' : '-translate-y-full'}`}>
-            <div className="max-w-7xl mx-auto px-6 py-4 flex items-center justify-between">
-                <Link href="/" className="flex items-center gap-3 group">
+            <div className="max-w-[90rem] mx-auto px-4 md:px-6 py-4 flex items-center justify-between gap-4 lg:gap-8">
+                <Link href="/" className="flex items-center gap-3 group shrink-0">
                     <div className="w-10 h-10 rounded-xl bg-accent-primary/10 flex items-center justify-center shadow-soft group-hover:shadow-card transition-all">
                         <SpiderWeb className="w-6 h-6 text-accent-primary" />
                     </div>
-                    <h1 className="text-xl font-serif font-medium text-text-primary">
+                    <h1 className="text-xl font-serif font-medium text-text-primary whitespace-nowrap">
                         <span className="text-accent-primary">M</span>atrix
                     </h1>
                 </Link>
 
-                <nav className="hidden md:flex items-center gap-8">
-                    <Link href="/" className="text-text-secondary hover:text-accent-primary transition-colors font-medium">
+                <nav className="hidden lg:flex items-center gap-4 xl:gap-6 flex-wrap justify-center">
+                    <Link href="/" className="text-text-secondary hover:text-accent-primary transition-colors text-sm font-medium whitespace-nowrap">
                         About
                     </Link>
-                    <Link href="/scan" className="text-text-secondary hover:text-accent-primary transition-colors font-medium">
+                    <Link href="/scan" className="text-text-secondary hover:text-accent-primary transition-colors text-sm font-medium whitespace-nowrap">
                         Scan
                     </Link>
-                    <Link href="/repo" className="text-text-secondary hover:text-accent-primary transition-colors font-medium">
+                    <Link href="/repo" className="text-text-secondary hover:text-accent-primary transition-colors text-sm font-medium whitespace-nowrap">
                         Repository
                     </Link>
-                    <Link href="/labs" className="text-text-secondary hover:text-accent-primary transition-colors font-medium">
+                    <Link href="/labs" className="text-text-secondary hover:text-accent-primary transition-colors text-sm font-medium whitespace-nowrap">
                         Labs
                     </Link>
-                    <Link href="/hub" className="text-text-secondary hover:text-accent-primary transition-colors font-medium">
+                    <Link href="/hub" className="text-text-secondary hover:text-accent-primary transition-colors text-sm font-medium whitespace-nowrap">
                         Features
                     </Link>
-                    <Link href="/forensics" className="text-text-secondary hover:text-accent-primary transition-colors font-medium">
+                    <Link href="/cyberverse" className="text-text-secondary hover:text-accent-primary transition-colors text-sm font-medium whitespace-nowrap flex items-center gap-1.5 group/cv">
+                        <span className="w-1.5 h-1.5 rounded-full bg-cyan-500 animate-pulse"></span>
+                        CyberVerse
+                    </Link>
+                    <Link href="/forensics" className="text-text-secondary hover:text-accent-primary transition-colors text-sm font-medium whitespace-nowrap">
                         Forensics
                     </Link>
-                    <Link href="/marketplace" className="text-text-secondary hover:text-accent-primary transition-colors font-medium">
+                    <Link href="/marketplace" className="text-text-secondary hover:text-accent-primary transition-colors text-sm font-medium whitespace-nowrap">
                         Market Analysis
                     </Link>
-                    <Link href="/docs" className="text-text-secondary hover:text-accent-primary transition-colors font-medium">
+                    <Link href="/docs" className="text-text-secondary hover:text-accent-primary transition-colors text-sm font-medium whitespace-nowrap">
                         Docs
                     </Link>
                     {isAuthenticated && (
-                        <Link href="/settings" className="text-text-secondary hover:text-accent-primary transition-colors font-medium">
+                        <Link href="/settings" className="text-text-secondary hover:text-accent-primary transition-colors text-sm font-medium whitespace-nowrap">
                             Settings
                         </Link>
                     )}
                 </nav>
 
-                <div className="flex items-center gap-5">
+                <div className="flex items-center gap-4 shrink-0">
                     {isAuthenticated && (
-                        <div className="flex items-center gap-4 animate-fade-in">
+                        <div className="flex items-center gap-3 animate-fade-in">
                             {/* User Avatar & Name */}
-                            <div className="hidden lg:flex items-center gap-3 px-4 py-2 bg-warm-50/50 rounded-xl border border-warm-200/50 hover:border-accent-primary/30 transition-all">
-                                <div className="w-8 h-8 rounded-lg bg-accent-primary/10 flex items-center justify-center text-accent-primary shadow-sm">
-                                    <User className="w-4 h-4" />
+                            <div className="hidden sm:flex items-center gap-2 px-3 py-1.5 bg-warm-50/50 rounded-xl border border-warm-200/50 hover:border-accent-primary/30 transition-all">
+                                <div className="w-7 h-7 rounded-lg bg-accent-primary/10 flex items-center justify-center text-accent-primary shadow-sm">
+                                    <User className="w-3.5 h-3.5" />
                                 </div>
-                                <span className="text-text-primary font-semibold text-sm">
+                                <span className="text-text-primary font-semibold text-sm whitespace-nowrap">
                                     {user?.username}
                                 </span>
                             </div>
@@ -85,10 +89,10 @@ export function Navbar() {
                             {/* Logout Button */}
                             <button
                                 onClick={logout}
-                                className="group p-2.5 text-text-muted hover:text-red-500 hover:bg-red-50 rounded-xl transition-all hover:shadow-sm border border-transparent hover:border-red-100"
+                                className="group p-2 text-text-muted hover:text-red-500 hover:bg-red-50 rounded-xl transition-all hover:shadow-sm border border-transparent hover:border-red-100"
                                 title="Logout"
                             >
-                                <LogOut className="w-5 h-5 group-hover:scale-110 transition-transform" />
+                                <LogOut className="w-4 h-4 group-hover:scale-110 transition-transform" />
                             </button>
                         </div>
                     )}
