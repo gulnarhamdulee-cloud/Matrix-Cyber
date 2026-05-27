@@ -452,41 +452,83 @@ async def _check_and_apply_migrations(conn) -> None:
 async def _seed_marketplace_data() -> None:
     """Seed exploit pricing and financial impact data if they are empty."""
     from sqlalchemy import select, func
-    
+
     try:
         # Import dynamically to prevent circular dependencies
         from marketplace_simulation.models import ExploitPricing, FinancialImpact
-        
+
         async with async_session_maker() as session:
             # Check if exploit pricing is empty
             exploit_count_stmt = select(func.count(ExploitPricing.id))
             result = await session.execute(exploit_count_stmt)
             exploit_count = result.scalar() or 0
-            
+
             # Check if financial impact is empty
             finance_count_stmt = select(func.count(FinancialImpact.id))
             result = await session.execute(finance_count_stmt)
             finance_count = result.scalar() or 0
-            
+
             if exploit_count == 0 or finance_count == 0:
                 logger.info("Marketplace seed data is missing. Running auto-seeding...")
                 from marketplace_simulation.utils.data_importer import import_exploit_pricing, import_financial_impact
                 from pathlib import Path
-                
+
                 backend_dir = Path(__file__).parent.parent
                 dark_csv = backend_dir / "marketplace_simulation" / "data" / "dark.csv"
                 finance_csv = backend_dir / "marketplace_simulation" / "data" / "finance.csv"
-                
+
                 if exploit_count == 0 and dark_csv.exists():
                     logger.info(f"Auto-importing exploit pricing from {dark_csv}")
                     await import_exploit_pricing(str(dark_csv))
-                    
+
                 if finance_count == 0 and finance_csv.exists():
                     logger.info(f"Auto-importing financial impact from {finance_csv}")
                     await import_financial_impact(str(finance_csv))
-                    
+
     except Exception as e:
         logger.error(f"Failed to auto-seed marketplace data: {e}", exc_info=True)
+
+    # After seeding pricing data, backfill any vulnerabilities that lack valuations.
+    # This ensures production DB is populated on every server startup.
+    import asyncio
+    asyncio.ensure_future(_backfill_missing_valuations())
+
+
+async def _backfill_missing_valuations() -> None:
+    """
+    Background task: run MarketplaceService.analyze_vulnerability for every vulnerability
+    that does not yet have a marketplace_value_avg set. Safe to call on every startup —
+    it only processes vulnerabilities that haven't been valued yet.
+    """
+    try:
+        from sqlalchemy import select
+        from models.vulnerability import Vulnerability
+        from marketplace_simulation.services.marketplace_service import MarketplaceService
+
+        async with async_session_maker() as session:
+            stmt = select(Vulnerability).where(Vulnerability.marketplace_value_avg.is_(None))
+            result = await session.execute(stmt)
+            unanalyzed = result.scalars().all()
+
+        if not unanalyzed:
+            logger.info("Auto-backfill: all vulnerabilities already have valuations.")
+            return
+
+        logger.info(f"Auto-backfill: found {len(unanalyzed)} unanalyzed vulnerabilities. Starting valuation...")
+        count = 0
+        for vuln in unanalyzed:
+            # Use a fresh session per vulnerability to keep transactions clean
+            async with async_session_maker() as val_session:
+                try:
+                    await MarketplaceService.analyze_vulnerability(int(vuln.id), val_session)  # type: ignore
+                    count += 1
+                except Exception as ve:
+                    logger.warning(f"Auto-backfill: failed for vuln {vuln.id}: {ve}")
+
+        logger.info(f"Auto-backfill complete: {count}/{len(unanalyzed)} vulnerabilities analyzed and valued.")
+
+    except Exception as e:
+        logger.error(f"Auto-backfill failed: {e}", exc_info=True)
 
 
 
