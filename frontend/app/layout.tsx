@@ -7,7 +7,8 @@ export const metadata: Metadata = {
     keywords: ['security', 'penetration testing', 'vulnerability scanner', 'AI security'],
 };
 
-import { AuthProvider } from '../context/AuthContext';
+import { AuthProvider } from '@/context/AuthContext';
+import { XPSystemProvider } from '@/context/XPSystem';
 
 export default function RootLayout({
     children,
@@ -18,9 +19,11 @@ export default function RootLayout({
         <html lang="en">
             <body className="min-h-screen bg-bg-primary pattern-bg">
                 <AuthProvider>
-                    <div suppressHydrationWarning>
-                        {children}
-                    </div>
+                    <XPSystemProvider>
+                        <div suppressHydrationWarning>
+                            {children}
+                        </div>
+                    </XPSystemProvider>
                 </AuthProvider>
             </body>
         </html>
