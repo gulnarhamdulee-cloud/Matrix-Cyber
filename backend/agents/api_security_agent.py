@@ -195,13 +195,7 @@ class APISecurityAgent(BaseSecurityAgent):
 
     async def _discover_api_endpoints(self, target_url: str) -> List[Dict[str, Any]]:
         """
-        Discover API endpoints including documentation URLs.
-
-        Args:
-            target_url: Base URL
-
-        Returns:
-            List of discovered endpoints
+        Discover API endpoints including documentation URLs in parallel.
         """
         endpoints = []
 
@@ -210,12 +204,12 @@ class APISecurityAgent(BaseSecurityAgent):
 
         base_url = target_url if target_url.endswith("/") else f"{target_url}/"
 
-        for path in self.API_PATHS:
+        async def probe_path(path: str):
             clean_path = path.lstrip("/")
             url = urljoin(base_url, clean_path)
-
             try:
-                response = await self.make_request(url)
+                # Use a fast 3-second timeout for rapid discovery probing
+                response = await self.make_request(url, timeout=3.0)
                 if response and response.status_code in [200, 201, 401, 403]:
                     endpoints.append({
                         "url": url,
@@ -227,6 +221,10 @@ class APISecurityAgent(BaseSecurityAgent):
             except Exception as e:
                 logger.debug(f"[API Agent] Discovery error for {url}: {e}")
 
+        # Probe all paths concurrently to reduce discovery phase from ~20 minutes to under 10 seconds
+        import asyncio
+        await asyncio.gather(*(probe_path(path) for path in self.API_PATHS))
+
         return endpoints
 
     def _build_api_context(
@@ -235,7 +233,7 @@ class APISecurityAgent(BaseSecurityAgent):
             vulnerability_type: str,
             description: str,
             detection_method: str = "api_probe",
-            data_exposed: List[str] = None
+            data_exposed: Optional[List[str]] = None
     ) -> VulnerabilityContext:
         """Build VulnerabilityContext for API security issues."""
         
@@ -541,10 +539,15 @@ class APISecurityAgent(BaseSecurityAgent):
             for i in range(APITestConfig.RATE_LIMIT_REQUESTS):
                 try:
                     response = await self.make_request(url, method=method, data={})
-                    if response and response.status_code not in [429, 503]:
+                    if response is None:
+                        # If the endpoint is completely unreachable, abort testing rate limiting to avoid hangs
+                        logger.info(f"[API Agent] Rate limit test aborted for {url}: Endpoint is unreachable")
+                        return None
+                    if response.status_code not in [429, 503]:
                         success_count += 1
-                except:
-                    pass
+                except Exception as e:
+                    logger.info(f"[API Agent] Rate limit test aborted due to connection error: {e}")
+                    return None
 
             elapsed = time.time() - start_time
             success_rate = success_count / APITestConfig.RATE_LIMIT_REQUESTS
@@ -613,6 +616,9 @@ class APISecurityAgent(BaseSecurityAgent):
                     headers={"Content-Type": "application/json"}
                 )
 
+                if response is None:
+                    break
+
                 if response and response.status_code in [200, 201]:
                     # Check if privileged fields are echoed back
                     response_lower = response.text.lower()
@@ -662,13 +668,7 @@ class APISecurityAgent(BaseSecurityAgent):
 
     async def _check_old_api_versions(self, target_url: str) -> List[AgentResult]:
         """
-        Check for old/deprecated API versions (API9:2023 Improper Inventory Management).
-
-        Args:
-            target_url: Base URL
-
-        Returns:
-            List of issues with old API versions
+        Check for old/deprecated API versions concurrently.
         """
         results = []
 
@@ -677,18 +677,20 @@ class APISecurityAgent(BaseSecurityAgent):
 
         base_url = target_url if target_url.endswith("/") else f"{target_url}/"
 
-        # Test for multiple API versions
         versions_found = []
 
-        for version in range(1, 6):  # Check v1 through v5
+        async def check_version(version: int):
             version_url = urljoin(base_url, f"api/v{version}/")
-
             try:
-                response = await self.make_request(version_url, timeout=APITestConfig.DISCOVERY_TIMEOUT)
+                # Use a fast 3-second timeout for version probing
+                response = await self.make_request(version_url, timeout=3.0)
                 if response and response.status_code in [200, 401, 403]:
                     versions_found.append(version)
             except:
                 pass
+
+        import asyncio
+        await asyncio.gather(*(check_version(v) for v in range(1, 6)))
 
         # If multiple versions exist, flag as potential inventory issue
         if len(versions_found) > 2:
@@ -759,19 +761,19 @@ class APISecurityAgent(BaseSecurityAgent):
         except Exception as e:
             logger.debug(f"[API Agent] Baseline request failed: {e}")
 
-        # 2. Test privileged paths
-        for path in self.PRIVILEGED_PATHS:
+        # 2. Test privileged paths concurrently
+        async def test_path(path: str):
             clean_path = path.lstrip("/")
             url = urljoin(base_url, clean_path)
 
             try:
-                response = await self.make_request(url)
+                response = await self.make_request(url, timeout=3.0)
                 if not response:
-                    continue
+                    return
 
                 # Ignore if status is not 200, or matches baseline status and content
                 if response.status_code != 200:
-                    continue
+                    return
                 
                 # Check for SPA shell indicators
                 is_spa = self._is_spa_shell(response.text)
@@ -781,14 +783,14 @@ class APISecurityAgent(BaseSecurityAgent):
                 
                 if baseline_status == 200 and similarity > 0.9:
                     logger.debug(f"[API Agent] Skipping BFLA for {url}: Matches baseline (Similarity: {similarity:.2f})")
-                    continue
+                    return
                 
                 if is_spa:
                     # If it's an SPA shell, we only report if it's significantly different from baseline
                     # or if the baseline was NOT a 200 OK (meaning this route is specifically 200)
                     if baseline_status == 200 and similarity > 0.7:
                         logger.debug(f"[API Agent] Skipping BFLA for {url}: SPA shell detected (Similarity: {similarity:.2f})")
-                        continue
+                        return
 
                 # If we get here, it's a potential BFLA
                 results.append(self.create_result(
@@ -820,6 +822,9 @@ class APISecurityAgent(BaseSecurityAgent):
             except Exception as e:
                 logger.debug(f"[API Agent] BFLA test error for {url}: {e}")
 
+        import asyncio
+        await asyncio.gather(*(test_path(path) for path in self.PRIVILEGED_PATHS))
+
         return results
 
     def _is_spa_shell(self, content: str) -> bool:
@@ -829,16 +834,14 @@ class APISecurityAgent(BaseSecurityAgent):
             '<div id="root">', 
             '<div id="app">', 
             'window.__initial_state__',
-            'dangerouslysetinnerhtml',
             'react-root',
-            '<script type="module"',
-            'content="website"',
-            'property="og:site_name"' # Generic tags often found in index.html
+            '__next',
+            '__nuxt'
         ]
         
-        # Match if more than 2 indicators are present or it's very short boilerplate
+        # Require specific SPA structural divs/state variables or very short boilerplate
         count = sum(1 for ind in spa_indicators if ind in content_lower)
-        return count >= 2 or (len(content) < 2000 and "<html" in content_lower and "<script" in content_lower)
+        return count >= 1 or (len(content) < 1500 and "<html" in content_lower and "<script" in content_lower and ("root" in content_lower or "app" in content_lower))
 
     async def _validate_header_value(
             self,

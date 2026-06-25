@@ -144,6 +144,16 @@ export class MatrixApiClient {
     private csrfToken: string | null = null;
     private accessToken: string | null = null;
 
+    constructor() {
+        if (typeof window !== 'undefined') {
+            this.accessToken = localStorage.getItem('access_token');
+        }
+    }
+
+    getAccessToken(): string | null {
+        return this.accessToken;
+    }
+
     async ensureCsrf() {
         const response = await this.request<{ status: string; csrf_token?: string }>('/api/csrf/');
         // Store the token from the response body
@@ -184,6 +194,9 @@ export class MatrixApiClient {
 
         if (response.access_token) {
             this.accessToken = response.access_token;
+            if (typeof window !== 'undefined') {
+                localStorage.setItem('access_token', response.access_token);
+            }
             console.log('[API] Registration successful, access token stored');
         }
         return response;
@@ -213,6 +226,9 @@ export class MatrixApiClient {
 
         if (response.access_token) {
             this.accessToken = response.access_token;
+            if (typeof window !== 'undefined') {
+                localStorage.setItem('access_token', response.access_token);
+            }
             console.log('[API] Login successful, access token stored');
         }
         return response;
@@ -220,6 +236,9 @@ export class MatrixApiClient {
 
     async logout() {
         this.accessToken = null;
+        if (typeof window !== 'undefined') {
+            localStorage.removeItem('access_token');
+        }
         return this.request<{ message: string }>('/api/auth/logout/', {
             method: 'POST'
         });

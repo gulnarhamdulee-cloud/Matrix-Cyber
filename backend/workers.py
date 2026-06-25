@@ -11,6 +11,28 @@ from core.database import async_session_maker
 from models.scan import Scan, ScanStatus
 from models.vulnerability import Vulnerability, Severity, VulnerabilityType
 from agents.orchestrator import orchestrator
+from agents.sql_injection_agent import SQLInjectionAgent
+from agents.xss_agent import XSSAgent
+from agents.auth_agent import AuthenticationAgent
+from agents.api_security_agent import APISecurityAgent
+from agents.ssrf_agent import SSRFAgent
+from agents.csrf_agent import CSRFAgent
+from agents.command_injection_agent import CommandInjectionAgent
+from agents.security_headers_agent import SecurityHeadersAgent
+
+# Register all agents on the global orchestrator instance
+for agent in [
+    SQLInjectionAgent(),
+    XSSAgent(),
+    AuthenticationAgent(),
+    APISecurityAgent(),
+    SSRFAgent(),
+    CSRFAgent(),
+    CommandInjectionAgent(),
+    SecurityHeadersAgent()
+]:
+    orchestrator.register_agent(agent)
+
 
 
 def run_scan_task(scan_id: int):
@@ -202,6 +224,12 @@ async def _execute_orchestrator(db: AsyncSession, scan: Scan):
         scan.medium_count = sum(1 for r in results if r.severity.value == 'medium')  # type: ignore
         scan.low_count = sum(1 for r in results if r.severity.value == 'low')  # type: ignore
         scan.info_count = sum(1 for r in results if r.severity.value == 'info')  # type: ignore
+        
+        # Save discovered recon details
+        if orchestrator.scan_context:
+            scan.endpoints_discovered = len(orchestrator.scan_context.discovered_endpoints)  # type: ignore
+            scan.technology_stack = orchestrator.scan_context.technology_stack  # type: ignore
+        scan.forms_discovered = getattr(orchestrator, 'forms_discovered', 0)  # type: ignore
         
         scan.status = ScanStatus.COMPLETED  # type: ignore
         scan.completed_at = datetime.now(timezone.utc)  # type: ignore

@@ -40,6 +40,10 @@ async def get_current_user(
     # Priority 2: HttpOnly Cookie
     if not token and request:
         token = request.cookies.get("access_token")
+        
+    # Priority 3: Query Parameter (fallback for EventSource/SSE)
+    if not token and request:
+        token = request.query_params.get("token") or request.query_params.get("access_token")
             
     if not token:
         raise credentials_exception

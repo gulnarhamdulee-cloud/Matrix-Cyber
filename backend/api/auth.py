@@ -17,6 +17,11 @@ from config import get_settings
 
 logger = get_logger(__name__)
 settings = get_settings()
+
+# Cookie security flags: HTTPS-only in production, plain HTTP for local dev
+_IS_DEV = settings.environment.lower() == "development"
+COOKIE_SECURE = not _IS_DEV   # False on localhost (HTTP), True in prod (HTTPS)
+COOKIE_SAMESITE = "lax" if _IS_DEV else "none"  # "none" requires HTTPS
 from core.security import verify_password, get_password_hash, create_access_token, create_refresh_token, decode_token
 from models.user import User
 from schemas.auth import UserCreate, UserLogin, UserResponse, Token
@@ -68,21 +73,21 @@ async def register(response: Response, user_data: UserCreate, db: AsyncSession =
     access_token = create_access_token(data={"sub": str(new_user.id)})
     refresh_token = create_refresh_token(data={"sub": str(new_user.id)})
     
-    # Set HttpOnly cookies with cross-origin support
+    # Set HttpOnly cookies — secure=False + samesite=lax for HTTP localhost dev
     response.set_cookie(
         key="access_token",
         value=access_token,
         httponly=True,
-        secure=True,  # Required for SameSite=None
-        samesite="none",
+        secure=COOKIE_SECURE,
+        samesite=COOKIE_SAMESITE,
         max_age=settings.access_token_expire_minutes * 60
     )
     response.set_cookie(
         key="refresh_token",
         value=refresh_token,
         httponly=True,
-        secure=True,
-        samesite="none",
+        secure=COOKIE_SECURE,
+        samesite=COOKIE_SAMESITE,
         max_age=7 * 24 * 60 * 60  # 7 days
     )
     
@@ -129,21 +134,21 @@ async def login(request: Request, response: Response, credentials: UserLogin, db
     access_token = create_access_token(data={"sub": str(user.id)})
     refresh_token = create_refresh_token(data={"sub": str(user.id)})
     
-    # Set HttpOnly cookies with cross-origin support
+    # Set HttpOnly cookies — secure=False + samesite=lax for HTTP localhost dev
     response.set_cookie(
         key="access_token",
         value=access_token,
         httponly=True,
-        secure=True,  # Required for SameSite=None
-        samesite="none",
+        secure=COOKIE_SECURE,
+        samesite=COOKIE_SAMESITE,
         max_age=settings.access_token_expire_minutes * 60
     )
     response.set_cookie(
         key="refresh_token",
         value=refresh_token,
         httponly=True,
-        secure=True,
-        samesite="none",
+        secure=COOKIE_SECURE,
+        samesite=COOKIE_SAMESITE,
         max_age=7 * 24 * 60 * 60  # 7 days
     )
     
@@ -159,10 +164,12 @@ async def get_current_user_info(current_user: User = Depends(get_current_user)):
     return UserResponse.model_validate(current_user)
 
 
+from typing import Optional
+
 @router.put("/me/", response_model=UserResponse)
 async def update_current_user(
-    full_name: str = None,
-    company: str = None,
+    full_name: Optional[str] = None,
+    company: Optional[str] = None,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
@@ -210,21 +217,21 @@ async def refresh_token(request: Request, response: Response, db: AsyncSession =
         new_access_token = create_access_token(data={"sub": str(user.id)})
         new_refresh_token = create_refresh_token(data={"sub": str(user.id)})
         
-        # Update cookies with cross-origin support
+        # Update cookies — secure=False + samesite=lax for HTTP localhost dev
         response.set_cookie(
             key="access_token",
             value=new_access_token,
             httponly=True,
-            secure=True,
-            samesite="none",
+            secure=COOKIE_SECURE,
+            samesite=COOKIE_SAMESITE,
             max_age=settings.access_token_expire_minutes * 60
         )
         response.set_cookie(
             key="refresh_token",
             value=new_refresh_token,
             httponly=True,
-            secure=True,
-            samesite="none",
+            secure=COOKIE_SECURE,
+            samesite=COOKIE_SAMESITE,
             max_age=7 * 24 * 60 * 60
         )
         
@@ -244,6 +251,6 @@ async def refresh_token(request: Request, response: Response, db: AsyncSession =
 @router.post("/logout/")
 async def logout(response: Response):
     """Logout user by clearing cookies."""
-    response.delete_cookie(key="access_token", httponly=True, secure=True, samesite="none")
-    response.delete_cookie(key="refresh_token", httponly=True, secure=True, samesite="none")
+    response.delete_cookie(key="access_token", httponly=True, secure=COOKIE_SECURE, samesite=COOKIE_SAMESITE)
+    response.delete_cookie(key="refresh_token", httponly=True, secure=COOKIE_SECURE, samesite=COOKIE_SAMESITE)
     return {"message": "Logged out successfully"}

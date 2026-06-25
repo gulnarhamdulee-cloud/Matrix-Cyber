@@ -421,7 +421,7 @@ class Scan(Base, AuditMixin):
         """Calculate success rate."""
         if self.requests_sent == 0:
             return 0.0
-        return round((1 - (self.error_count / self.requests_sent)) * 100, 2)
+        return round((1 - (int(self.error_count) / int(self.requests_sent))) * 100, 2)
     
     @validates('target_url')
     def validate_target_url(self, key, url):

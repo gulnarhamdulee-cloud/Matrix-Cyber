@@ -287,8 +287,521 @@ def index():
                 <a href="/search" class="action">Search Documents</a>
             </div>
         </div>
+
+        <div class="grid" style="margin-top: 2rem;">
+            <div class="card">
+                <h3>💬 Comms Relay (Stored XSS)</h3>
+                <p>Leave communications for agents inside the field.</p>
+                <a href="/xss-lab" class="action">Open Chat Relay</a>
+            </div>
+            <div class="card">
+                <h3>🔌 SysAdmin Controls (RCE)</h3>
+                <p>Intranet diagnostic tool for network testing.</p>
+                <a href="/rce-lab" class="action">Open Diagnostics Console</a>
+            </div>
+            <div class="card">
+                <h3>📄 Document Viewer (LFI / Path Traversal)</h3>
+                <p>Direct system document view tool.</p>
+                <a href="/view-document?file=welcome.txt" class="action">View Documents</a>
+            </div>
+        </div>
+
+        <div class="grid" style="margin-top: 2rem;">
+            <div class="card">
+                <h3>🌐 Feed Proxy (SSRF)</h3>
+                <p>Proxy services to grab feeds from internal subnets.</p>
+                <a href="/proxy?url=http://example.com" class="action">Proxy Content</a>
+            </div>
+            <div class="card">
+                <h3>💾 System Backups (Directory Listing)</h3>
+                <p>Internal storage directory containing diagnostic files.</p>
+                <a href="/backups/" class="action">Browse Backups</a>
+            </div>
+            <div class="card">
+                <h3>🔧 Dev Tools (Sensitve Data Leak)</h3>
+                <p>Expose debug metadata for systems.</p>
+                <a href="/api/debug/system-info" class="action">Debug Configs</a>
+            </div>
+        </div>
     """
     return render_page(template)
+
+
+# ==================== NEW VULNERABLE ENDPOINTS ====================
+
+@app.route('/view-document', methods=['GET'])
+def view_document():
+    """VULNERABILITY: Local File Inclusion / Path Traversal"""
+    import os
+    filename = request.args.get('file', 'welcome.txt')
+    
+    # Intentionally path traversal vulnerable
+    filepath = os.path.join(os.path.dirname(__file__), filename)
+    content = ""
+    try:
+        if os.path.exists(filepath):
+            with open(filepath, 'r', encoding='utf-8', errors='ignore') as f:
+                content = f.read()
+        else:
+            # Check relative to base path for easier traversal
+            with open(filename, 'r', encoding='utf-8', errors='ignore') as f:
+                content = f.read()
+    except Exception as e:
+        content = f"Error reading document: {str(e)}"
+        
+    template = f"""
+    <div class="hero" style="text-align: left; margin-bottom: 2rem;">
+        <h1 style="font-size: 2.5rem;">Document Viewer</h1>
+        <p style="color: #94a3b8;">Reading file: <code>{filename}</code></p>
+    </div>
+    <div class="card">
+        <pre style="background: #020617; border: 1px solid var(--border); padding: 1.5rem; color: #a7f3d0; border-radius: 6px; overflow-x: auto; white-space: pre-wrap; font-family: monospace;">{content}</pre>
+        <div style="margin-top: 1rem;">
+            <a href="/" style="color: var(--accent); text-decoration: none;">← Back to home</a>
+        </div>
+    </div>
+    """
+    return render_page(template)
+
+
+@app.route('/proxy', methods=['GET'])
+def proxy():
+    """VULNERABILITY: Server Side Request Forgery (SSRF)"""
+    import urllib.request
+    url = request.args.get('url', '')
+    response_content = ""
+    
+    if url:
+        try:
+            # Intentionally SSRF vulnerable request
+            req = urllib.request.Request(
+                url,
+                headers={'User-Agent': 'Matrix-Internal-Fetch/1.0'}
+            )
+            with urllib.request.urlopen(req, timeout=5) as r:
+                response_content = r.read().decode('utf-8', errors='replace')
+        except Exception as e:
+            response_content = f"Error reaching destination URL: {str(e)}"
+            
+    template = f"""
+    <div class="hero" style="text-align: left; margin-bottom: 2rem;">
+        <h1 style="font-size: 2.5rem;">SSRF Feed Proxy</h1>
+        <p style="color: #94a3b8;">Proxying URL: <code>{url}</code></p>
+    </div>
+    <div class="card">
+        <form method="GET" style="display: flex; gap: 1rem; margin-bottom: 1.5rem;">
+            <input type="text" name="url" placeholder="http://192.168.0.1/api..." value="{url}" style="margin-bottom:0;">
+            <button type="submit" style="width: auto;">Proxy</button>
+        </form>
+        <textarea style="width: 100%; height: 300px; background: #020617; border: 1px solid var(--border); color: #fff; padding: 1rem; font-family: monospace;" readonly>{response_content}</textarea>
+    </div>
+    """
+    return render_page(template)
+
+
+@app.route('/transfer-funds', methods=['GET', 'POST'])
+def transfer_funds():
+    """VULNERABILITY: CSRF (State changes on GET request & No Anti-CSRF Token)"""
+    to_account = request.args.get('to', '')
+    amount = request.args.get('amount', '')
+    message = ""
+    
+    if to_account and amount:
+        # VULNERABILITY: State changing action allowed via GET (ideal for CSRF payloads)
+        message = f"Successfully transferred ${amount} to account {to_account}!"
+        
+    template = f"""
+    <div class="hero" style="text-align: left; margin-bottom: 2rem;">
+        <h1 style="font-size: 2.5rem;">Corporate Fund Transfers</h1>
+        <p style="color: #94a3b8;">Internal authorization required.</p>
+    </div>
+    <div class="card">
+        <form method="GET" style="max-width: 400px;">
+            <label>Recipient Account Number</label>
+            <input type="text" name="to" value="{to_account}" required>
+            
+            <label>Transfer Amount ($)</label>
+            <input type="number" name="amount" value="{amount}" required>
+            
+            <button type="submit">Execute Transfer</button>
+        </form>
+        {f'<div class="alert success" style="margin-top:1.5rem;">{message}</div>' if message else ''}
+    </div>
+    """
+    return render_page(template)
+
+
+@app.route('/backups/', defaults={'req_path': ''})
+@app.route('/backups/<path:req_path>')
+def backups(req_path):
+    """VULNERABILITY: Directory Listing / Information Disclosure"""
+    import os
+    abs_path = os.path.dirname(__file__)
+    files = os.listdir(abs_path)
+    
+    # Format list
+    file_list_html = ""
+    for f in files:
+        file_list_html += f'<li><a href="/view-document?file={f}" style="color: var(--accent);">{f}</a></li>'
+        
+    template = f"""
+    <div class="hero" style="text-align: left; margin-bottom: 2rem;">
+        <h1 style="font-size: 2.5rem;">Backup & Artifact Directories</h1>
+        <p style="color: #94a3b8;">Browsing internal files directory.</p>
+    </div>
+    <div class="card">
+        <ul style="line-height: 2;">
+            {file_list_html}
+        </ul>
+    </div>
+    """
+    return render_page(template)
+
+
+@app.route('/api/debug/system-info', methods=['GET'])
+def system_info():
+    """VULNERABILITY: Sensitive Data Leakage / Information Disclosure"""
+    # Simulate env file data leaked
+    simulated_env = {
+        "DB_PASSWORD": "matrix_secure_pass_123",
+        "API_SECRET_KEY": "gsk_MOCK_GROQ_KEY_FOR_SIMULATED_DATA_LEAK_TESTING",
+        "ENVIRONMENT": "production",
+        "AWS_KEY_ID": "AKIAIOSFODNN7EXAMPLE",
+        "SYSTEM_ROOT_VERSION": "Matrix v4.11.2a"
+    }
+    return simulated_env
+
+
+@app.route('/api/users/profile', methods=['GET'])
+def user_profile():
+    """VULNERABILITY: Broken Object Level Authorization (IDOR)"""
+    user_id = request.args.get('id', '1')
+    
+    users_db = {
+        "1": {"username": "admin", "role": "superuser", "email": "admin@matrix.local", "cleartext_password_leak": "Sup3rS3cr3tP@ssw0rd"},
+        "2": {"username": "guest", "role": "viewer", "email": "guest@matrix.local"},
+        "3": {"username": "neo", "role": "operator", "email": "neo@matrix.local", "auth_token": "tk_19283712398"}
+    }
+    
+    user_info = users_db.get(user_id, {"error": "User not found"})
+    return user_info
+
+
+# ==================== EXISTING LOGIC RETAINED ====================
+
+@app.route('/login', methods=['GET', 'POST'])
+def login():
+    message = ""
+    query_debug = ""
+    
+    if request.method == 'POST':
+        username = request.form.get('username')
+        password = request.form.get('password')
+        
+        # VULNERABILITY: SQL Injection
+        query = f"SELECT * FROM users WHERE username = '{username}'"
+        
+        try:
+            conn = sqlite3.connect('users.db')
+            c = conn.cursor()
+            c.execute(query)
+            user = c.fetchone()
+            conn.close()
+            
+            if user:
+                # SUCCESS: Render Secure Dashboard
+                flag_display = ""
+                if user[1] == 'admin':
+                    flag_display = """
+                    <div class="alert success" style="margin-top: 2rem; border-left: 4px solid #10b981;">
+                        <h3 style="margin: 0; color: #10b981;">CRITICAL ASSET ACCESSED</h3>
+                        <p style="margin: 0.5rem 0 0 0;">FLAG: <strong>MATRIX{SQL_INJECTION_MASTER}</strong></p>
+                    </div>
+                    """
+                
+                dashboard_template = f"""
+                    <div class="hero" style="text-align: left; margin-bottom: 2rem;">
+                        <h1 style="font-size: 2.5rem;">Secure Employee Dashboard</h1>
+                        <p style="color: #94a3b8;">Welcome back, <span style="color: var(--accent);">{user[1]}</span>. Your session is active.</p>
+                    </div>
+
+                    {flag_display}
+
+                    <div class="grid" style="margin-top: 3rem;">
+                        <div class="card">
+                            <div style="display:flex; justify-content:space-between; align-items:center;">
+                                <h3>📂 Document Vault</h3>
+                                <span style="background:rgba(14, 165, 233, 0.1); color:var(--accent); padding:0.2rem 0.6rem; border-radius:12px; font-size:0.8rem;">Authorized</span>
+                            </div>
+                            <p>Access classified internal documents and reports.</p>
+                            <a href="/search" class="action">Open Vault</a>
+                        </div>
+
+                        <div class="card">
+                            <div style="display:flex; justify-content:space-between; align-items:center;">
+                                <h3>⚡ Server Admin</h3>
+                                <span style="background:rgba(16, 185, 129, 0.1); color:#10b981; padding:0.2rem 0.6rem; border-radius:12px; font-size:0.8rem;">Online</span>
+                            </div>
+                            <p>Manage infrastructure and run system diagnostics.</p>
+                            <a href="/rce-lab" class="action">Launch Console</a>
+                        </div>
+                        
+                        <div class="card">
+                            <h3>💸 Payroll / Transfers</h3>
+                            <p>Execute instant wire transfers internally.</p>
+                            <a href="/transfer-funds" class="action">Transfer Portal</a>
+                        </div>
+                    </div>
+                """
+                return render_page(dashboard_template, "login")
+            else:
+                message = "Invalid credentials."
+        except Exception as e:
+            message = f"Database Error: {str(e)}"
+            
+        query_debug = query
+
+    template = f"""
+        <div class="login-container">
+            <div class="card">
+                <h2 style="text-align:center; margin-bottom:2rem; color:var(--text);">Employee Sign In</h2>
+                <form method="POST">
+                    <label>Username / Employee ID</label>
+                    <input type="text" name="username" placeholder="e.g. j.doe or admin" required autocomplete="off">
+                    
+                    <label>Password</label>
+                    <input type="password" name="password" placeholder="••••••••" autocomplete="off">
+                    
+                    <button type="submit">Authentication Required</button>
+                </form>
+                {f'<div class="alert {"success" if "Welcome" in message else "error"}">{message}</div>' if message else ''}
+                {f'<div style="margin-top:1.5rem; border-top:1px solid #334155; padding-top:1rem; font-size:0.8rem; color:#64748b;">Process Log:<br><code>{query_debug}</code></div>' if query_debug else ''}
+            </div>
+        </div>
+    """
+    return render_page(template, "login")
+
+
+@app.route('/search', methods=['GET'])
+def search():
+    q = request.args.get('q', '')
+    
+    # VULNERABILITY: Reflected XSS
+    
+    template = f"""
+        <div class="hero" style="text-align: left; margin-bottom: 2rem;">
+            <h1 style="font-size: 2.5rem;">Document Vault</h1>
+            <p style="color: #94a3b8;">Search classified internal documents and reports.</p>
+        </div>
+
+        <div class="card">
+            <form method="GET" style="position: relative; display: flex; gap: 1rem;">
+                <input type="text" name="q" placeholder="Enter keywords (e.g. 'quarterly report', 'merged assets')..." value="{q.replace('"', '&quot;') if q else ''}" style="margin-bottom: 0;">
+                <button type="submit" style="width: auto; padding: 0 2rem; white-space: nowrap;">Search Archives</button>
+            </form>
+            
+            {f'<div class="alert success" style="margin-top: 1.5rem; background:rgba(14, 165, 233, 0.1); border-color:var(--accent); color:#fff;"><span style="color:var(--accent)">Results for:</span> <b>{q}</b><br><br>No matching records found in the active index.</div>' if q else ''}
+            
+            <div style="margin-top: 2rem; border-top: 1px solid var(--border); padding-top: 1rem; color: #64748b; font-size: 0.9rem;">
+                <p><strong>Security Notice:</strong> All search queries are logged for audit purposes.</p>
+            </div>
+        </div>
+    """
+    return render_page(template, "search")
+
+
+@app.route('/xss-lab', methods=['GET', 'POST'])
+def xss_lab():
+    messages = []
+    msg = request.args.get('msg', '')
+    
+    chat_history = [
+        {"user": "Morpheus", "text": "The line is not secure. We need to re-key encryption.", "time": "10:42 AM"},
+        {"user": "Trinity", "text": "Agents are monitoring the main nodes.", "time": "10:43 AM"},
+        {"user": "Operator", "text": "I'm seeing signal interference in Sector 7.", "time": "10:45 AM"}
+    ]
+    
+    if msg:
+        chat_history.append({"user": "Guest", "text": msg, "time": "Now"})
+
+    chat_html = ""
+    for m in chat_history:
+        chat_html += f"""
+        <div class="message {'self' if m['user'] == 'Guest' else ''}">
+            <div class="meta">{m['user']} • {m['time']}</div>
+            <div class="content">{m['text']}</div>
+        </div>
+        """
+
+    template = f"""
+    <!DOCTYPE html>
+    <html lang="en">
+    <head>
+        <meta charset="UTF-8">
+        <title>Matrix Comms Relay</title>
+        <style>
+            :root {{ --bg: #000; --term: #0d1117; --green: #00ff41; --dim: #008f11; }}
+            body {{ background: var(--bg); color: var(--green); font-family: 'Consolas', 'Monaco', monospace; margin: 0; display: flex; flex-direction: column; height: 100vh; overflow: hidden; }}
+            
+            header {{ padding: 1rem; border-bottom: 1px solid var(--dim); display: flex; justify-content: space-between; align-items: center; background: #050505; }}
+            .status {{ font-size: 0.8rem; letter-spacing: 2px; animation: blink 2s infinite; }}
+            
+            .chat-window {{ flex: 1; overflow-y: auto; padding: 2rem; display: flex; flex-direction: column; gap: 1rem; scroll-behavior: smooth; }}
+            
+            .message {{ max-width: 80%; border-left: 3px solid var(--dim); padding-left: 1rem; }}
+            .message.self {{ align-self: flex-end; border-left: none; border-right: 3px solid var(--green); padding-left: 0; padding-right: 1rem; text-align: right; }}
+            
+            .meta {{ font-size: 0.7rem; color: #444; margin-bottom: 0.2rem; text-transform: uppercase; }}
+            .content {{ font-size: 1.1rem; text-shadow: 0 0 5px rgba(0, 255, 65, 0.3); word-break: break-all; }}
+            
+            .input-area {{ padding: 1.5rem; background: #050505; border-top: 1px solid var(--dim); display: flex; gap: 1rem; }}
+            input {{ flex: 1; background: #111; border: 1px solid var(--dim); color: var(--green); padding: 1rem; font-family: inherit; font-size: 1rem; }}
+            input:focus {{ outline: none; border-color: var(--green); box-shadow: 0 0 15px rgba(0, 255, 65, 0.2); }}
+            button {{ background: var(--dim); color: #000; border: none; padding: 0 2rem; font-weight: bold; cursor: pointer; transition: all 0.2s; }}
+            button:hover {{ background: var(--green); box-shadow: 0 0 15px var(--green); }}
+            
+            @keyframes blink {{ 0% {{ opacity: 1; }} 50% {{ opacity: 0.5; }} 100% {{ opacity: 1; }} }}
+        </style>
+        {SHARED_LISTENER_SCRIPT}
+    </head>
+    <body onload="window.scrollTo(0, document.body.scrollHeight);">
+        <header>
+            <div>// SECURE RELAY_NODE_V9</div>
+            <div class="status">ENCRYPTION: UNSTABLE</div>
+        </header>
+        
+        <div class="chat-window" id="chat">
+            {chat_html}
+        </div>
+        
+        <form class="input-area" method="GET">
+            <input type="text" name="msg" placeholder="Broadcast message to network..." autofocus autocomplete="off">
+            <button type="submit">TRANSMIT</button>
+        </form>
+        
+        <script>
+            const chat = document.getElementById('chat');
+            chat.scrollTop = chat.scrollHeight;
+        </script>
+    </body>
+    </html>
+    """
+    return render_template_string(template)
+
+
+@app.route('/rce-lab', methods=['GET'])
+def rce_lab():
+    target = request.args.get('target', '')
+    cmd_output = ""
+    
+    if target:
+        # VULNERABILITY: Command Injection
+        cmd = f"ping -c 1 {target}" if platform.system() != "Windows" else f"ping -n 1 {target}"
+        try:
+            cmd_output = subprocess.check_output(cmd, shell=True, stderr=subprocess.STDOUT)
+            cmd_output = cmd_output.decode('utf-8', errors='replace')
+        except subprocess.CalledProcessError as e:
+            cmd_output = e.output.decode('utf-8', errors='replace')
+        except Exception as e:
+            cmd_output = f"SYSTEM_ERROR: {str(e)}"
+
+    template = f"""
+    <!DOCTYPE html>
+    <html lang="en">
+    <head>
+        <meta charset="UTF-8">
+        <title>Infrastructure Control</title>
+        <style>
+            :root {{ --bg: #0a0a0a; --panel: #111; --border: #333; --accent: #f59e0b; --text: #e5e5e5; }}
+            body {{ background: var(--bg); color: var(--text); font-family: 'Segoe UI', system-ui, sans-serif; margin: 0; min-height: 100vh; display: grid; place-items: center; }}
+            
+            .console {{ width: 90%; max-width: 1000px; height: 80vh; background: var(--panel); border: 1px solid var(--border); display: flex; flex-direction: column; box-shadow: 0 20px 50px rgba(0,0,0,0.5); }}
+            
+            .header {{ padding: 0.75rem 1.5rem; background: #1a1a1a; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center; }}
+            .title {{ font-weight: 600; font-size: 0.9rem; color: #888; text-transform: uppercase; letter-spacing: 1px; }}
+            .indicators {{ display: flex; gap: 0.5rem; }}
+            
+            .viewport {{ flex: 1; display: flex; }}
+            
+            .sidebar {{ width: 200px; border-right: 1px solid var(--border); padding: 1.5rem; display: flex; flex-direction: column; gap: 1rem; }}
+            .menu-item {{ padding: 0.75rem; color: #666; cursor: not-allowed; border-radius: 4px; border: 1px solid transparent; }}
+            .menu-item.active {{ color: var(--accent); background: rgba(245, 158, 11, 0.1); border-color: rgba(245, 158, 11, 0.2); }}
+            
+            .main-area {{ flex: 1; padding: 2rem; display: flex; flex-direction: column; gap: 2rem; }}
+            
+            .tool-panel {{ background: #000; border: 1px solid var(--border); padding: 1.5rem; border-radius: 6px; }}
+            
+            .input-group {{ display: flex; gap: 1rem; margin-top: 1rem; }}
+            input {{ flex: 1; background: #111; border: 1px solid #444; color: white; padding: 0.75rem; font-family: 'Consolas', monospace; }}
+            input:focus {{ outline: none; border-color: var(--accent); }}
+            button {{ background: var(--accent); color: black; border: none; padding: 0 1.5rem; font-weight: bold; cursor: pointer; }}
+            button:hover {{ opacity: 0.9; }}
+            
+            .terminal-output {{ 
+                flex: 1; 
+                background: #0d0d0d; 
+                border: 1px solid var(--border); 
+                border-radius: 6px; 
+                padding: 1rem; 
+                font-family: 'Consolas', monospace; 
+                font-size: 0.9rem; 
+                color: #aaa; 
+                overflow-y: auto; 
+                min-height: 200px;
+                white-space: pre-wrap;
+            }}
+            .prompt {{ color: var(--accent); margin-right: 0.5rem; }}
+        </style>
+        {SHARED_LISTENER_SCRIPT}
+    </head>
+    <body>
+        <div class="console">
+            <div class="header">
+                <div class="title">Grid Diagnostics /// Admin_Level_4</div>
+                <div class="indicators">
+                    <div style="width:8px; height:8px; border-radius:50%; background:#333;"></div>
+                    <div style="width:8px; height:8px; border-radius:50%; background:#333;"></div>
+                    <div style="width:8px; height:8px; border-radius:50%; background:var(--accent); box-shadow: 0 0 10px var(--accent);"></div>
+                </div>
+            </div>
+            
+            <div class="viewport">
+                <div class="sidebar">
+                    <div class="menu-item active">Connectivity</div>
+                    <div class="menu-item">Power Flow</div>
+                    <div class="menu-item">Load Balance</div>
+                    <div class="menu-item">Emergency Dump</div>
+                </div>
+                
+                <div class="main-area">
+                    <div class="tool-panel">
+                        <h2 style="margin:0; font-size:1.2rem; display: flex; align-items: center; gap: 0.5rem;">
+                            Network Probe
+                        </h2>
+                        <p style="color:#666; font-size: 0.9rem;">Test reachability of grid substations.</p>
+                        
+                        <form method="GET" class="input-group">
+                            <input type="text" name="target" placeholder="192.168.x.x" value="{target}">
+                            <button type="submit">EXECUTE</button>
+                        </form>
+                    </div>
+                    
+                    <div class="terminal-output">
+                        <div><span class="prompt">admin@grid-con:~$</span> System Diagnostics Service v2.4 initialized...</div>
+                        {f'<div><span class="prompt">admin@grid-con:~$</span> ping {target}</div><div style="color:#e5e5e5; margin-top:0.5rem;">{cmd_output}</div>' if cmd_output else ''}
+                    </div>
+                </div>
+            </div>
+        </div>
+    </body>
+    </html>
+    """
+    return render_page(template)
+
+
+if __name__ == '__main__':
+    app.run(host='0.0.0.0', port=5050)
+
 
 @app.route('/login', methods=['GET', 'POST'])
 def login():
@@ -616,4 +1129,4 @@ def rce_lab():
     return render_template_string(template)
 
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=80)
+    app.run(host='0.0.0.0', port=5050)

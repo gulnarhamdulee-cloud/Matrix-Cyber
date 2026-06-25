@@ -4,10 +4,13 @@ Scan management API routes.
 Scans are executed asynchronously using a distributed worker queue (RQ + Redis).
 Falls back to FastAPI BackgroundTasks if Redis is unavailable.
 """
-from fastapi import APIRouter, Depends, HTTPException, status, BackgroundTasks
+from fastapi import APIRouter, Depends, HTTPException, status, BackgroundTasks, Request
+from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
 from typing import List, Optional
+import asyncio
+import json
 from datetime import datetime, timezone
 
 from core.database import get_db
@@ -33,7 +36,7 @@ except ImportError:
 
 
 
-router = APIRouter(prefix="/scans", tags=["Scans"])
+router = APIRouter(prefix="/scans", tags=["Scans"], redirect_slashes=False)
 
 
 @router.post("/", response_model=ScanResponse, status_code=status.HTTP_201_CREATED)
@@ -260,15 +263,16 @@ async def start_scan(
     logger.info(f"Starting scan {scan_id} for target: {scan.target_url}")
     
     # Queue scan for execution
+    from workers import _run_scan_async
     if RQ_AVAILABLE:
         job_id = enqueue_scan(scan.id)
         if job_id:
             logger.info(f"Scan {scan.id} enqueued with job ID: {job_id}")
         else:
             logger.warning(f"RQ enqueue failed for scan {scan.id}, using BackgroundTasks")
-            background_tasks.add_task(run_scan_task, scan.id)
+            background_tasks.add_task(_run_scan_async, scan.id)
     else:
-        background_tasks.add_task(run_scan_task, scan.id)
+        background_tasks.add_task(_run_scan_async, scan.id)
         logger.info(f"Scan {scan.id} queued via BackgroundTasks (fallback)")
     
     return ScanResponse.model_validate(scan)
@@ -315,3 +319,101 @@ async def cancel_scan(
             logger.info(f"Background job cancelled for scan {scan_id}")
             
     return ScanResponse.model_validate(scan)
+
+
+@router.get("/{scan_id}/live-events")
+@router.get("/{scan_id}/live-events/")
+async def scan_live_events(
+    scan_id: int,
+    request: Request,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Stream real-time attack events for a scan via Server-Sent Events (SSE).
+    
+    The frontend connects here to receive live agent activity updates
+    for the Live Attack Map visualization.
+    """
+    # Verify scan belongs to user
+    result = await db.execute(
+        select(Scan).where(Scan.id == scan_id, Scan.user_id == current_user.id)
+    )
+    scan = result.scalar_one_or_none()
+    if not scan:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Scan not found")
+
+    async def event_generator():
+        """Async generator that yields SSE-formatted events."""
+        from core.database import async_session_maker as asm
+        redis = None
+        pubsub = None
+        channel_name = f"matrix:attack_events:{scan_id}"
+
+        try:
+            from redis import asyncio as aioredis
+            from config import get_settings
+            settings = get_settings()
+            redis_url = getattr(settings, "redis_url", "redis://localhost:6379")
+
+            redis = aioredis.from_url(redis_url, decode_responses=True)
+            pubsub = redis.pubsub()
+            await pubsub.subscribe(channel_name)
+
+            # Send connection handshake
+            yield f"data: {json.dumps({'type': 'connected', 'scan_id': scan_id})}\n\n"
+
+            last_heartbeat = asyncio.get_event_loop().time()
+
+            while True:
+                # Check if client disconnected
+                if await request.is_disconnected():
+                    break
+
+                # Non-blocking message check (100ms timeout)
+                message = await pubsub.get_message(ignore_subscribe_messages=True, timeout=0.1)
+                if message and message.get("type") == "message":
+                    yield f"data: {message['data']}\n\n"
+
+                # Heartbeat + scan status check every 5s
+                now = asyncio.get_event_loop().time()
+                if now - last_heartbeat > 5:
+                    yield ": heartbeat\n\n"
+                    last_heartbeat = now
+
+                    # Use a fresh session for status check to avoid closed-session issues
+                    try:
+                        async with asm() as status_db:
+                            check_result = await status_db.execute(
+                                select(Scan.status).where(Scan.id == scan_id)
+                            )
+                            scan_status = check_result.scalar_one_or_none()
+                            if scan_status and scan_status.value in ("completed", "failed", "cancelled"):
+                                yield f"data: {json.dumps({'type': 'scan_complete', 'scan_id': scan_id, 'status': scan_status.value})}\n\n"
+                                break
+                    except Exception as se:
+                        logger.debug(f"[LiveEvents] Status check error: {se}")
+
+                await asyncio.sleep(0.05)
+
+        except Exception as e:
+            logger.warning(f"[LiveEvents] SSE stream error for scan {scan_id}: {e}")
+            yield f"data: {json.dumps({'type': 'error', 'message': str(e)})}\n\n"
+        finally:
+            try:
+                if pubsub:
+                    await pubsub.unsubscribe(channel_name)
+                if redis:
+                    await redis.aclose()
+            except Exception:
+                pass
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )

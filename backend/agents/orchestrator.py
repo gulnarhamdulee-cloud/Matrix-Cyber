@@ -22,6 +22,7 @@ from models.vulnerability import Vulnerability, Severity, VulnerabilityType
 from core.scan_context import ScanContext, AgentPhase
 from core.forensics_manager import forensic_manager
 from core.database import async_session_maker
+from core.attack_events import publish_attack_event
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -75,7 +76,7 @@ class OrchestratorConfig:
     CONFIDENCE_BOOST_HSTS = 15
     CONFIDENCE_PENALTY_NO_EVIDENCE = 10
     CONFIDENCE_PENALTY_GATES = 10
-    MIN_CONFIDENCE_THRESHOLD = 30
+    MIN_CONFIDENCE_THRESHOLD = 20  # Lowered from 30 — passive header checks are provably true
 
     # Progress percentages
     PROGRESS_DISCOVERY_START = 5
@@ -281,6 +282,7 @@ class AgentOrchestrator:
 
         # Metrics
         self.scan_metrics: Optional[ScanMetrics] = None
+        self.forms_discovered: int = 0
 
         # Lazy loading: Agent registry (not initialized yet)
         self._agent_registry: Dict[str, Dict[str, Any]] = {}
@@ -349,8 +351,16 @@ class AgentOrchestrator:
                 "phase": AgentPhase.EXPLOITATION,
                 "dependencies": [AgentNames.API],
                 "timeout": OrchestratorConfig.DISCOVERY_AGENT_TIMEOUT
+            },
+            AgentNames.SECURITY_HEADERS: {
+                "class": "SecurityHeadersAgent",
+                "module": ".security_headers_agent",
+                "phase": AgentPhase.RECONNAISSANCE,
+                "dependencies": [],
+                "timeout": 60
             }
         }
+
 
     def _load_agent_on_demand(self, agent_name: str) -> BaseSecurityAgent:
         """Lazy load an agent when needed."""
@@ -404,11 +414,15 @@ class AgentOrchestrator:
         try:
             # Close HTTP sessions if agent has them
             if hasattr(agent, 'close'):
-                if asyncio.iscoroutinefunction(agent.close):
-                    # Can't await here, so we'll just mark for cleanup
-                    logger.debug(f"Agent {agent_name} has async close, scheduling")
-                else:
-                    agent.close()
+                # Schedule async close in the background or run on current loop
+                try:
+                    loop = asyncio.get_running_loop()
+                    loop.create_task(agent.close())
+                except RuntimeError:
+                    try:
+                        asyncio.run(agent.close())
+                    except Exception:
+                        logger.error(f"Failed to run async close for {agent_name}")
 
             # Remove from registry
             del self.agents[agent_name]
@@ -1254,6 +1268,15 @@ class AgentOrchestrator:
         """
         retry_count = 0
         last_error = None
+        scan_id = self.scan_context.scan_id if self.scan_context else 0
+
+        # Publish agent start event
+        publish_attack_event(
+            scan_id=scan_id,
+            event_type="agent_start",
+            agent_name=agent.agent_name,
+            payload={"target": target_url, "endpoints": len(endpoints)},
+        )
 
         while retry_count <= max_retries:
             try:
@@ -1270,6 +1293,15 @@ class AgentOrchestrator:
                     timeout=timeout
                 )
 
+                # Publish agent complete event
+                vulns_found = sum(1 for r in results if r.is_vulnerable)
+                publish_attack_event(
+                    scan_id=scan_id,
+                    event_type="agent_complete",
+                    agent_name=agent.agent_name,
+                    payload={"vulnerabilities_found": vulns_found},
+                )
+
                 return results
 
             except asyncio.TimeoutError:
@@ -1277,10 +1309,22 @@ class AgentOrchestrator:
                 logger.warning(
                     f"{agent.agent_name} timed out after {timeout}s"
                 )
+                publish_attack_event(
+                    scan_id=scan_id,
+                    event_type="agent_error",
+                    agent_name=agent.agent_name,
+                    payload={"error": last_error},
+                )
 
             except Exception as e:
                 last_error = str(e)
                 logger.error(f"{agent.agent_name} error: {e}")
+                publish_attack_event(
+                    scan_id=scan_id,
+                    event_type="agent_error",
+                    agent_name=agent.agent_name,
+                    payload={"error": last_error},
+                )
 
             # Retry logic
             retry_count += 1
@@ -1321,6 +1365,7 @@ class AgentOrchestrator:
             Agent results
         """
         logger.info(f"Executing {agent.agent_name}...")
+        scan_id = self.scan_context.scan_id if self.scan_context else 0
 
         results = await agent.scan(
             target_url=target_url,
@@ -1360,6 +1405,19 @@ class AgentOrchestrator:
                 if self.on_vulnerability_found:
                     await self.on_vulnerability_found(result)
 
+                # Publish real-time vulnerability event for Live Attack Map
+                publish_attack_event(
+                    scan_id=scan_id,
+                    event_type="vulnerability_found",
+                    agent_name=agent.agent_name,
+                    payload={
+                        "title": result.title,
+                        "severity": result.severity.value if hasattr(result.severity, 'value') else str(result.severity),
+                        "url": result.url,
+                        "vulnerability_type": result.vulnerability_type.value if hasattr(result.vulnerability_type, 'value') else str(result.vulnerability_type),
+                    },
+                )
+
         logger.info(f"{agent.agent_name} found {len(results)} issues")
         return results
 
@@ -1389,13 +1447,14 @@ class AgentOrchestrator:
             auth_cookies = self.scan_context.manual_cookies if self.scan_context else {}
 
             analyzer = TargetAnalyzer(
-                timeout=30.0, 
-                max_depth=2,
+                timeout=45.0, 
+                max_depth=4,
                 auth_headers=auth_headers,
                 auth_cookies=auth_cookies
             )
             analysis = await analyzer.analyze(target_url)
             await analyzer.close()
+            self.forms_discovered = len(analysis.forms)
 
             # Convert to dict format
             endpoints = [ep.to_dict() for ep in analysis.endpoints]

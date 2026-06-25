@@ -9,7 +9,7 @@ from scanner.target_analyzer import TargetAnalyzer
 
 async def test_discovery():
     analyzer = TargetAnalyzer(timeout=30.0, max_depth=1)
-    target = "http://testphp.vulnweb.com/"
+    target = "http://localhost:5050/"
     print(f"Analyzing {target}...")
     analysis = await analyzer.analyze(target)
     await analyzer.close()

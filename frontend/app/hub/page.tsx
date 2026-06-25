@@ -44,6 +44,16 @@ export default function HubPage() {
             tags: ['Code', 'SAST']
         },
         {
+            title: 'CyberVerse Visual Hub',
+            description: 'Immersive, cinematic, and gamified animations explaining core cyber threats, attacks, and historical breaches.',
+            icon: ShieldAlert,
+            href: '/cyberverse',
+            color: 'text-cyan-400',
+            bg: 'bg-cyan-500/5',
+            border: 'border-cyan-500/20',
+            tags: ['Immersive', 'Gamified']
+        },
+        {
             title: 'Agentic Workflow',
             description: 'Explore the autonomous orchestration logic behind Matrix security agents.',
             icon: Terminal,

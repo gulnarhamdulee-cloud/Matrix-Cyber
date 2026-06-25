@@ -13,7 +13,7 @@ Features:
 """
 
 from datetime import datetime, timezone, timedelta
-from typing import Optional, Dict, Any, List
+from typing import Optional, Dict, Any, List, cast
 from enum import Enum
 import secrets
 import hashlib
@@ -578,7 +578,7 @@ class User(Base):
     # AUTHENTICATION METHODS
     # ========================================================================
     
-    def record_login(self, ip_address: str, user_agent: str = None):
+    def record_login(self, ip_address: str, user_agent: Optional[str] = None):
         """Record successful login."""
         self.last_login_at = datetime.now(timezone.utc)
         self.last_login_ip = ip_address
@@ -629,7 +629,7 @@ class User(Base):
     # MFA METHODS
     # ========================================================================
     
-    def enable_mfa(self, method: MFAMethod, secret: str = None):
+    def enable_mfa(self, method: MFAMethod, secret: Optional[str] = None):
         """Enable multi-factor authentication."""
         self.mfa_enabled = True
         self.mfa_method = method
@@ -735,7 +735,7 @@ class User(Base):
             UserRole.GUEST: ["scans:read"],
         }
         
-        perms = role_permissions.get(self.role, [])
+        perms = role_permissions.get(cast(UserRole, self.role), [])
         
         # Check wildcard
         if "*" in perms:
@@ -864,8 +864,8 @@ class User(Base):
     # ACTIVITY LOGGING
     # ========================================================================
     
-    def log_activity(self, activity_type: ActivityType, description: str = None,
-                    ip_address: str = None, user_agent: str = None, metadata: dict = None):
+    def log_activity(self, activity_type: ActivityType, description: Optional[str] = None,
+                    ip_address: Optional[str] = None, user_agent: Optional[str] = None, metadata: Optional[dict] = None):
         """
         Log user activity.
         
@@ -930,7 +930,7 @@ class User(Base):
         """Get storage usage percentage."""
         if self.storage_limit_mb == 0:
             return 0.0
-        return round((self.storage_used_mb / self.storage_limit_mb) * 100, 2)
+        return round(float(self.storage_used_mb / self.storage_limit_mb) * 100, 2)
     
     @property
     def primary_organization(self) -> Optional[Organization]:

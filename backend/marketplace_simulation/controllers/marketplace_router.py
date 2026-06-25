@@ -12,8 +12,9 @@ from pydantic import BaseModel
 import subprocess
 import sys
 import os
-from api.deps import get_current_user
+from api.deps import get_current_user, get_optional_user
 from models.user import User
+from typing import Optional as TypingOptional
 
 router = APIRouter(
     prefix="/marketplace",
@@ -37,12 +38,29 @@ async def get_dashboard(
 ):
     """Get overview of marketplace statistics for the current user."""
     try:
+        from models.scan import Scan
+        # Auto-value any unvalued vulnerabilities for the current user on the fly
+        unvalued_stmt = (
+            select(Vulnerability.id)
+            .join(Scan, Vulnerability.scan_id == Scan.id)
+            .where(Scan.user_id == current_user.id)
+            .where(Vulnerability.marketplace_value_avg.is_(None))
+        )
+        unvalued_res = await db.execute(unvalued_stmt)
+        unvalued_ids = [r[0] for r in unvalued_res.all()]
+        if unvalued_ids:
+            print(f"[Marketplace] Auto-analyzing {len(unvalued_ids)} unvalued vulnerabilities for user {current_user.id} on the fly...")
+            for vuln_id in unvalued_ids:
+                try:
+                    await MarketplaceService.analyze_vulnerability(vuln_id, db)
+                except Exception as ae:
+                    print(f"[Marketplace] On-the-fly valuation failed for vuln {vuln_id}: {ae}")
+        
         stats = await MarketplaceService.get_dashboard_stats(db, user_id=current_user.id)
         return stats
     except Exception as e:
         print(f"Dashboard error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
-
 @router.get("/all", response_model=List[Dict[str, Any]])
 async def get_all_valuations(
     limit: int = 50,
@@ -53,11 +71,28 @@ async def get_all_valuations(
 ):
     """Get all vulnerabilities analyzed for the current user, ordered by recency."""
     try:
+        from models.scan import Scan
+        # Auto-value any unvalued vulnerabilities for the current user on the fly
+        unvalued_stmt = (
+            select(Vulnerability.id)
+            .join(Scan, Vulnerability.scan_id == Scan.id)
+            .where(Scan.user_id == current_user.id)
+            .where(Vulnerability.marketplace_value_avg.is_(None))
+        )
+        unvalued_res = await db.execute(unvalued_stmt)
+        unvalued_ids = [r[0] for r in unvalued_res.all()]
+        if unvalued_ids:
+            print(f"[Marketplace] Auto-analyzing {len(unvalued_ids)} unvalued vulnerabilities for user {current_user.id} on the fly...")
+            for vuln_id in unvalued_ids:
+                try:
+                    await MarketplaceService.analyze_vulnerability(vuln_id, db)
+                except Exception as ae:
+                    print(f"[Marketplace] On-the-fly valuation failed for vuln {vuln_id}: {ae}")
+
         return await MarketplaceService.get_all_valuations(db, limit, offset, scan_id, user_id=current_user.id)
     except Exception as e:
         print(f"All valuations error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
-
 @router.get("/comparisons", response_model=Dict[str, Any])
 async def get_comparisons(
     db: AsyncSession = Depends(get_db)
@@ -75,12 +110,25 @@ async def get_vulnerability_details(
     vulnerability_id: int,
     db: AsyncSession = Depends(get_db)
 ):
-    """Get detailed marketplace analysis for a single vulnerability."""
+    """Get detailed marketplace analysis for a single vulnerability.
+    Auto-triggers analysis if the vulnerability hasn't been valued yet.
+    """
     try:
-        # We reuse analyze logic to get the full view (calculated on the fly for simulation)
-        # In a real app we might fetch stored JSON, but this ensures fresh simulation data
+        # Check if already valued; if not, analyze on demand
+        stmt = select(Vulnerability).where(Vulnerability.id == vulnerability_id)
+        result = await db.execute(stmt)
+        vuln = result.scalar_one_or_none()
+        if vuln is None:
+            raise HTTPException(status_code=404, detail=f"Vulnerability {vulnerability_id} not found")
+
+        if vuln.marketplace_value_avg is None:
+            # Not yet analyzed — run analysis inline (first time is always on demand)
+            print(f"[Details] Auto-analyzing vulnerability {vulnerability_id} on demand...")
+
         analysis = await MarketplaceService.analyze_vulnerability(vulnerability_id, db)
         return analysis
+    except HTTPException:
+        raise
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:

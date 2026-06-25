@@ -3,7 +3,7 @@ Scan Service - Orchestrates the complete scanning workflow.
 """
 import asyncio
 from datetime import datetime, timezone
-from typing import Optional
+from typing import Optional, Callable
 
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
@@ -39,16 +39,25 @@ class ScanService:
         self.orchestrator = AgentOrchestrator()
         self.analyzer = TargetAnalyzer()
         
-        # Register available agents
+        # Register all available agents
         self._register_agents()
     
     def _register_agents(self):
         """Register all available security agents."""
+        from agents.ssrf_agent import SSRFAgent
+        from agents.csrf_agent import CSRFAgent
+        from agents.command_injection_agent import CommandInjectionAgent
+        from agents.security_headers_agent import SecurityHeadersAgent
+        
         agents = [
             SQLInjectionAgent(),
             XSSAgent(),
             AuthenticationAgent(),
             APISecurityAgent(),
+            SSRFAgent(),
+            CSRFAgent(),
+            CommandInjectionAgent(),
+            SecurityHeadersAgent()
         ]
         
         for agent in agents:
@@ -58,7 +67,7 @@ class ScanService:
         self,
         scan_id: int,
         db: AsyncSession,
-        progress_callback: Optional[callable] = None
+        progress_callback: Optional[Callable] = None
     ):
         """
         Execute a complete security scan.
@@ -94,6 +103,11 @@ class ScanService:
             
             # Phase 1: Analyze target
             print(f"[ScanService] Analyzing target: {scan.target_url}")
+            # Instantiate TargetAnalyzer with custom headers and cookies if provided
+            self.analyzer = TargetAnalyzer(
+                auth_headers=scan.custom_headers,
+                auth_cookies=scan.custom_cookies
+            )
             analysis = await self.analyzer.analyze(scan.target_url)
             
             # Store technology stack
@@ -117,7 +131,10 @@ class ScanService:
                 target_url=scan.target_url,
                 agents_enabled=scan.agents_enabled or None,
                 endpoints=endpoints,
-                technology_stack=analysis.technology_stack
+                technology_stack=analysis.technology_stack,
+                scan_id=scan_id,
+                custom_headers=scan.custom_headers,
+                custom_cookies=scan.custom_cookies
             )
             
             # Phase 3: Store vulnerabilities
@@ -268,11 +285,10 @@ async def run_scan_task(scan_id: int, db_url: str):
         scan_id: ID of scan to execute
         db_url: Database connection URL
     """
-    from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
-    from sqlalchemy.orm import sessionmaker
+    from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker
     
     engine = create_async_engine(db_url)
-    async_session = sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+    async_session = async_sessionmaker(engine, expire_on_commit=False)
     
     async with async_session() as session:
         service = ScanService()

@@ -14,6 +14,7 @@ import { api, Scan, Vulnerability } from '../../lib/matrix_api';
 import { useRouter, useSearchParams } from 'next/navigation';
 
 import { Navbar } from '../../components/Navbar';
+import { LiveAttackMap } from '../../components/LiveAttackMap';
 
 // Agent status type
 interface AgentStatus {
@@ -43,6 +44,8 @@ export default function ScanPage() {
         { name: 'SSRF Scanner', status: 'pending', icon: <Server className="w-4 h-4" />, findings: 0 },
         { name: 'Auth Testing', status: 'pending', icon: <Lock className="w-4 h-4" />, findings: 0 },
         { name: 'API Security', status: 'pending', icon: <Globe className="w-4 h-4" />, findings: 0 },
+        { name: 'Cmd Injection', status: 'pending', icon: <Terminal className="w-4 h-4" />, findings: 0 },
+        { name: 'Sec Headers', status: 'pending', icon: <ShieldAlert className="w-4 h-4" />, findings: 0 },
     ]);
 
     // WAF Evasion opt-in (default: OFF)
@@ -70,11 +73,70 @@ export default function ScanPage() {
                     setScanResults(scanData);
                     setTargetUrl(scanData.target_url);
                     setScanProgress(scanData.progress);
-                    if (scanData.status === 'completed') {
-                        const results = await api.getVulnerabilities(Number(scanId));
-                        setFindings(results.items);
-                        setAgentStatuses(prev => prev.map(agent => ({ ...agent, status: 'completed' })));
-                    }
+                    
+                    const results = await api.getVulnerabilities(Number(scanId));
+                    const currentFindings = results.items;
+                    setFindings(currentFindings);
+
+                    // Helper to get findings count for an agent
+                    const getFindingsCountForAgent = (agentName: string) => {
+                        const name = agentName.toLowerCase();
+                        const typeMap: Record<string, string[]> = {
+                            'sql injection': ['sql_injection', 'nosql_injection'],
+                            'xss detection': ['xss', 'xss_reflected', 'xss_stored', 'xss_dom'],
+                            'csrf analysis': ['csrf', 'clickjacking'],
+                            'ssrf scanner': ['ssrf', 'server_side_request_forgery', 'open_redirect'],
+                            'auth testing': ['broken_authentication', 'authentication', 'weak_password', 'broken_auth'],
+                            'api security': ['api_security', 'api_rate_limit_missing', 'api_authentication_bypass', 'mass_assignment'],
+                            'cmd injection': ['command_injection', 'code_injection'],
+                            'sec headers': ['security_headers', 'missing_headers', 'security_misconfiguration', 'missing_security_headers', 'information_disclosure']
+                        };
+                        const types = typeMap[name] || [];
+                        return currentFindings.filter(f => 
+                            types.includes(f.vulnerability_type.toLowerCase()) ||
+                            types.some(t => f.vulnerability_type.toLowerCase().includes(t))
+                        ).length;
+                    };
+
+                    setAgentStatuses(prev => prev.map(agent => {
+                        let status: 'pending' | 'active' | 'completed' = 'pending';
+                        if (scanData.status === 'completed') {
+                            status = 'completed';
+                        } else if (scanData.status === 'running') {
+                            // Map progress range to status (8 agents)
+                            const name = agent.name.toLowerCase();
+                            if (name.includes('sql')) {
+                                if (scanData.progress >= 30) status = 'completed';
+                                else if (scanData.progress >= 15) status = 'active';
+                            } else if (name.includes('xss')) {
+                                if (scanData.progress >= 45) status = 'completed';
+                                else if (scanData.progress >= 30) status = 'active';
+                            } else if (name.includes('csrf')) {
+                                if (scanData.progress >= 55) status = 'completed';
+                                else if (scanData.progress >= 45) status = 'active';
+                            } else if (name.includes('ssrf')) {
+                                if (scanData.progress >= 65) status = 'completed';
+                                else if (scanData.progress >= 55) status = 'active';
+                            } else if (name.includes('auth')) {
+                                if (scanData.progress >= 75) status = 'completed';
+                                else if (scanData.progress >= 65) status = 'active';
+                            } else if (name.includes('api')) {
+                                if (scanData.progress >= 83) status = 'completed';
+                                else if (scanData.progress >= 75) status = 'active';
+                            } else if (name.includes('cmd')) {
+                                if (scanData.progress >= 90) status = 'completed';
+                                else if (scanData.progress >= 83) status = 'active';
+                            } else if (name.includes('sec')) {
+                                if (scanData.progress >= 95) status = 'completed';
+                                else if (scanData.progress >= 90) status = 'active';
+                            }
+                        }
+                        return {
+                            ...agent,
+                            status,
+                            findings: getFindingsCountForAgent(agent.name)
+                        };
+                    }));
                 } catch (err) {
                     console.error('Failed to load scan from URL:', err);
                 }
@@ -82,17 +144,6 @@ export default function ScanPage() {
             loadScan();
         }
     }, [searchParams]);
-
-    // Use real agent status from scan results
-    useEffect(() => {
-        if (scanResults && scanResults.status !== 'pending') {
-            if (scanResults.status === 'completed') {
-                setAgentStatuses(prev => prev.map(agent => ({ ...agent, status: 'completed' })));
-            } else if (scanResults.status === 'running') {
-                setAgentStatuses(prev => prev.map(agent => ({ ...agent, status: 'active' })));
-            }
-        }
-    }, [scanResults]);
 
     const addLog = (type: string, message: string) => {
         setTerminalLogs(prev => [...prev.slice(-15), { type, message }]);
@@ -166,14 +217,84 @@ export default function ScanPage() {
             setScanResults(newScan);
 
             let failures = 0;
+            const MAX_FAILURES = 20; // tolerate uvicorn --reload restarts (~3-5s gap)
             let lastProgress = 0;
             const interval = setInterval(async () => {
                 try {
                     const statusUpdate = await api.getScan(newScan.id);
                     failures = 0;
 
+                    // Fetch vulnerabilities to show them in real-time
+                    const vulnResults = await api.getVulnerabilities(newScan.id);
+                    const currentFindings = vulnResults.items;
+                    setFindings(currentFindings);
+
                     setScanProgress(statusUpdate.progress);
                     setScanResults(statusUpdate);
+
+                    // Helper to get findings count for an agent
+                    const getFindingsCountForAgent = (agentName: string) => {
+                        const name = agentName.toLowerCase();
+                        const typeMap: Record<string, string[]> = {
+                            'sql injection': ['sql_injection', 'nosql_injection'],
+                            'xss detection': ['xss', 'xss_reflected', 'xss_stored', 'xss_dom'],
+                            'csrf analysis': ['csrf', 'clickjacking'],
+                            'ssrf scanner': ['ssrf', 'server_side_request_forgery', 'open_redirect'],
+                            'auth testing': ['broken_authentication', 'authentication', 'weak_password', 'broken_auth'],
+                            'api security': ['api_security', 'api_rate_limit_missing', 'api_authentication_bypass', 'mass_assignment'],
+                            'cmd injection': ['command_injection', 'code_injection'],
+                            'sec headers': ['security_headers', 'missing_headers', 'security_misconfiguration', 'missing_security_headers', 'information_disclosure']
+                        };
+                        const types = typeMap[name] || [];
+                        return currentFindings.filter(f => 
+                            types.includes(f.vulnerability_type.toLowerCase()) ||
+                            types.some(t => f.vulnerability_type.toLowerCase().includes(t))
+                        ).length;
+                    };
+
+                    // Dynamically map agent status and findings based on current scan progress
+                    setAgentStatuses(prev => prev.map(agent => {
+                        let status: 'pending' | 'active' | 'completed' = 'pending';
+                        const name = agent.name.toLowerCase();
+                        
+                        if (statusUpdate.status === 'completed') {
+                            status = 'completed';
+                        } else if (statusUpdate.status === 'failed' || statusUpdate.status === 'cancelled') {
+                            status = agent.status;
+                        } else {
+                            if (name.includes('sql')) {
+                                if (statusUpdate.progress >= 30) status = 'completed';
+                                else if (statusUpdate.progress >= 15) status = 'active';
+                            } else if (name.includes('xss')) {
+                                if (statusUpdate.progress >= 45) status = 'completed';
+                                else if (statusUpdate.progress >= 30) status = 'active';
+                            } else if (name.includes('csrf')) {
+                                if (statusUpdate.progress >= 55) status = 'completed';
+                                else if (statusUpdate.progress >= 45) status = 'active';
+                            } else if (name.includes('ssrf')) {
+                                if (statusUpdate.progress >= 65) status = 'completed';
+                                else if (statusUpdate.progress >= 55) status = 'active';
+                            } else if (name.includes('auth')) {
+                                if (statusUpdate.progress >= 75) status = 'completed';
+                                else if (statusUpdate.progress >= 65) status = 'active';
+                            } else if (name.includes('api')) {
+                                if (statusUpdate.progress >= 83) status = 'completed';
+                                else if (statusUpdate.progress >= 75) status = 'active';
+                            } else if (name.includes('cmd')) {
+                                if (statusUpdate.progress >= 90) status = 'completed';
+                                else if (statusUpdate.progress >= 83) status = 'active';
+                            } else if (name.includes('sec')) {
+                                if (statusUpdate.progress >= 95) status = 'completed';
+                                else if (statusUpdate.progress >= 90) status = 'active';
+                            }
+                        }
+                        
+                        return {
+                            ...agent,
+                            status,
+                            findings: getFindingsCountForAgent(agent.name)
+                        };
+                    }));
 
                     if (statusUpdate.progress > lastProgress) {
                         if (statusUpdate.progress >= 10 && lastProgress < 10) {
@@ -210,7 +331,7 @@ export default function ScanPage() {
                     if (statusUpdate.status === 'completed') {
                         clearInterval(interval);
                         setIsScanning(false);
-                        setAgentStatuses(prev => prev.map(agent => ({ ...agent, status: 'completed' })));
+                        setAgentStatuses(prev => prev.map(agent => ({ ...agent, status: 'completed', findings: getFindingsCountForAgent(agent.name) })));
                         const results = await api.getVulnerabilities(newScan.id);
                         setFindings(results.items);
                         addLog('success', `Complete. ${results.total} vulnerabilities found.`);
@@ -224,15 +345,15 @@ export default function ScanPage() {
                 } catch (err: any) {
                     console.error('Poll error:', err);
                     failures++;
-                    addLog('warn', `Connection failed (${failures}/3)`);
-                    if (failures >= 3) {
+                    addLog('warn', `Connection failed (${failures}/${MAX_FAILURES}) — scanner is busy`);
+                    if (failures >= MAX_FAILURES) {
                         clearInterval(interval);
                         setIsScanning(false);
-                        setError('Lost connection to scan server');
-                        addLog('error', 'Connection timeout');
+                        setError('Lost connection to scan server after 20 retries. The scan may still be running in the background.');
+                        addLog('error', 'Connection timeout — check backend logs');
                     }
                 }
-            }, 2000);
+            }, 3000); // 3s interval — gives uvicorn --reload time to recover
         } catch (err: any) {
             setIsScanning(false);
             setError(err.message || 'Failed to initialize scan');
@@ -537,6 +658,25 @@ export default function ScanPage() {
                                     </div>
                                 </div>
 
+                                {/* ─── Live Attack Map ─── */}
+                                <div className="p-5 border-t border-gray-100 bg-white">
+                                    <LiveAttackMap
+                                        scanId={scanResults?.id ?? null}
+                                        isScanning={isScanning}
+                                        targetUrl={targetUrl}
+                                        agentStatuses={agentStatuses}
+                                        onEventReceived={(event) => {
+                                            if (event.type === 'agent_start') {
+                                                addLog('scan', `Agent launched: ${event.agent}`);
+                                            } else if (event.type === 'vulnerability_found') {
+                                                addLog('error', `VULN: ${event.title ?? event.vulnerability_type} [${event.severity}]`);
+                                            } else if (event.type === 'agent_complete') {
+                                                addLog('success', `Agent complete: ${event.agent} → ${event.vulnerabilities_found ?? 0} findings`);
+                                            }
+                                        }}
+                                    />
+                                </div>
+
                                 {/* Agent Status Grid - Animated Cards */}
                                 <div className="p-6 bg-gradient-to-br from-amber-50/50 to-green-50/50">
                                     <h4 className="text-sm font-semibold text-gray-600 uppercase tracking-wide mb-4">Security Agents</h4>
@@ -613,6 +753,15 @@ export default function ScanPage() {
                             ======================================== */}
                         {scanResults && !isScanning && (
                             <div className="space-y-6">
+                                {/* Attack Map — Completed State */}
+                                <LiveAttackMap
+                                    scanId={scanResults.id}
+                                    isScanning={false}
+                                    targetUrl={targetUrl}
+                                    findings={findings}
+                                    agentStatuses={agentStatuses}
+                                />
+
                                 {/* Report Header - Executive Summary */}
                                 <header className="bg-white rounded-md border border-gray-200 p-6">
                                     <div className="flex items-start justify-between mb-6">

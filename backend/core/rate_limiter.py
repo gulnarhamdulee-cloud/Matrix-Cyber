@@ -6,7 +6,7 @@ import random
 import time
 from collections import deque
 from dataclasses import dataclass, field
-from typing import Dict, Optional
+from typing import Dict, Optional, Any
 from urllib.parse import urlparse
 
 from core.logger import get_logger
@@ -326,18 +326,24 @@ class AdaptiveRateLimiter:
                     state.consecutive_errors += 1
                     
                 elif status_code >= 500:
-                    # Server error - mild backoff
-                    state.consecutive_errors += 1
-                    
-                    # Threshold of 5 balances fuzzing needs with stability
-                    # 3 was too aggressive, 20 caused hangs
-                    if state.consecutive_errors >= 5:
-                        state.backoff_until = now + self.config.initial_backoff
-                        logger.warning(
-                            f"Multiple server errors from {host} ({state.consecutive_errors}), "
-                            f"backing off for {self.config.initial_backoff}s",
-                            extra={"host": host, "consecutive_errors": state.consecutive_errors}
-                        )
+                    # Server errors: distinguish 503 (endpoint missing) from real errors (500, 502, 504)
+                    # 503 = "Service Unavailable" — endpoint probably doesn't exist, don't backoff
+                    if status_code == 503:
+                        # Just skip silently — don't count as an error that triggers backoff
+                        pass
+                    else:
+                        # Real server error (500, 502, 504) — track but cap the backoff
+                        state.consecutive_errors += 1
+                        
+                        # Only trigger backoff at multiples of 10, and cap at 20 errors
+                        # This prevents infinite compounding stall on hostile targets
+                        if state.consecutive_errors <= 20 and state.consecutive_errors % 10 == 0:
+                            state.backoff_until = now + self.config.initial_backoff
+                            logger.warning(
+                                f"Multiple server errors from {host} ({state.consecutive_errors}), "
+                                f"backing off for {self.config.initial_backoff}s",
+                                extra={"host": host, "consecutive_errors": state.consecutive_errors}
+                            )
                     
                 elif status_code < 400:
                     # Success - reset backoff
@@ -367,7 +373,7 @@ class AdaptiveRateLimiter:
         except Exception as e:
             logger.error(f"Failed to report response for {host}: {e}", exc_info=True)
     
-    def get_stats(self, url: str) -> Dict[str, any]:
+    def get_stats(self, url: str) -> Dict[str, Any]:
         """
         Get rate limiting statistics for a host.
         

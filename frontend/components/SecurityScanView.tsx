@@ -53,122 +53,119 @@ export function SecurityScanView({ scan, findings, activeTab, terminalLines }: S
                 ))}
             </div>
 
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-                {/* Findings List */}
-                <div className="lg:col-span-2 space-y-6">
-                    <h3 className="text-2xl font-serif-display font-medium text-text-primary flex items-center gap-3 mb-4">
-                        <Shield className="w-6 h-6 text-accent-primary" />
-                        Infrastructure Security Findings
-                    </h3>
+            <div className="space-y-6">
+                <h3 className="text-2xl font-serif-display font-medium text-text-primary flex items-center gap-3 mb-4">
+                    <Shield className="w-6 h-6 text-accent-primary" />
+                    Infrastructure Security Findings
+                </h3>
 
-                    {filteredFindings.length === 0 ? (
-                        <div className="glass-card p-20 text-center">
-                            <CheckCircle className="w-16 h-16 text-green-500/30 mx-auto mb-4" />
-                            <h4 className="text-xl font-medium text-text-primary">
-                                {activeTab === 'active' ? 'Target Secured' : 'No Suppressed Findings'}
-                            </h4>
-                            <p className="text-text-secondary mt-2 max-w-sm mx-auto italic">
-                                {activeTab === 'active'
-                                    ? 'All dynamic security tests passed without intercepting a successful attack vector.'
-                                    : 'No findings were diverted from the primary report.'}
-                            </p>
-                        </div>
-                    ) : (
-                        filteredFindings.map((vuln) => (
-                            <div key={vuln.id} className="glass-card overflow-hidden group hover:border-accent-primary/20 transition-all duration-500 shadow-lg hover:shadow-2xl">
-                                <div className="p-10">
-                                    <div className="flex items-center justify-between mb-8">
-                                        <div className="flex items-center gap-3">
-                                            <span className="text-xs font-mono font-extrabold text-accent-primary bg-accent-primary/10 px-4 py-2 rounded-lg shadow-sm">
-                                                SEC-{String(scan.id).padStart(3, '0')}-{String(vuln.id).padStart(4, '0')}
-                                            </span>
-                                        </div>
-                                        <SeverityBadge severity={vuln.severity} size="lg" />
+                {filteredFindings.length === 0 ? (
+                    <div className="glass-card p-20 text-center">
+                        <CheckCircle className="w-16 h-16 text-green-500/30 mx-auto mb-4" />
+                        <h4 className="text-xl font-medium text-text-primary">
+                            {activeTab === 'active' ? 'Target Secured' : 'No Suppressed Findings'}
+                        </h4>
+                        <p className="text-text-secondary mt-2 max-w-sm mx-auto italic">
+                            {activeTab === 'active'
+                                ? 'All dynamic security tests passed without intercepting a successful attack vector.'
+                                : 'No findings were diverted from the primary report.'}
+                        </p>
+                    </div>
+                ) : (
+                    filteredFindings.map((vuln) => (
+                        <div key={vuln.id} className="glass-card overflow-hidden group hover:border-accent-primary/20 transition-all duration-500 shadow-lg hover:shadow-2xl">
+                            <div className="p-10">
+                                <div className="flex items-center justify-between mb-8">
+                                    <div className="flex items-center gap-3">
+                                        <span className="text-xs font-mono font-extrabold text-accent-primary bg-accent-primary/10 px-4 py-2 rounded-lg shadow-sm">
+                                            SEC-{String(scan.id).padStart(3, '0')}-{String(vuln.id).padStart(4, '0')}
+                                        </span>
                                     </div>
+                                    <SeverityBadge severity={vuln.severity} size="lg" />
+                                </div>
 
-                                    <div className="flex gap-6 mb-8">
-                                        <div className={`w-14 h-14 rounded-2xl flex items-center justify-center flex-shrink-0 bg-accent-primary/5 text-accent-primary`}>
-                                            <Globe className="w-8 h-8" />
-                                        </div>
-                                        <div className="flex-1">
-                                            <h4 className="text-3xl font-extrabold text-text-primary uppercase tracking-tight mb-2">
-                                                {vuln.vulnerability_type.replace(/_/g, ' ')}
-                                            </h4>
-                                            <p className="text-sm text-text-secondary mt-2 max-w-3xl leading-loose">{vuln.description}</p>
-                                            <div className="mt-4 flex items-center gap-2">
-                                                <code className="text-[11px] bg-warm-100 px-2 py-1 rounded text-accent-primary font-mono shadow-sm">
-                                                    {vuln.method} {vuln.url}
-                                                </code>
-                                            </div>
-
-                                            {/* Live Threat Intelligence Panel Integration */}
-                                            {!vuln.is_suppressed && (
-                                                <div className="mt-8 pt-6 border-t border-warm-100">
-                                                    <ThreatIntelligencePanel
-                                                        vulnerability={vuln}
-                                                        onSimulateExploit={() => setSelectedSimVuln(vuln)}
-                                                    />
-                                                </div>
-                                            )}
-                                        </div>
+                                <div className="flex gap-6 mb-8">
+                                    <div className={`w-14 h-14 rounded-2xl flex items-center justify-center flex-shrink-0 bg-accent-primary/5 text-accent-primary`}>
+                                        <Globe className="w-8 h-8" />
                                     </div>
-
-                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6 bg-matrix-pattern/5 p-6 rounded-2xl border border-warm-100 italic">
-                                        <div className="space-y-3">
-                                            <div className="text-[10px] font-bold uppercase tracking-widest text-text-muted flex items-center gap-2">
-                                                <Terminal className="w-4 h-4" /> Technical Context
-                                            </div>
-                                            <pre className="text-[11px] font-mono p-4 bg-white/80 border border-warm-200 rounded-xl overflow-x-auto text-text-primary h-[120px] shadow-inner">
-                                                {vuln.evidence || 'No direct evidence payload captured.'}
-                                            </pre>
+                                    <div className="flex-1">
+                                        <h4 className="text-3xl font-extrabold text-text-primary uppercase tracking-tight mb-2">
+                                            {vuln.vulnerability_type.replace(/_/g, ' ')}
+                                        </h4>
+                                        <p className="text-sm text-text-secondary mt-2 max-w-3xl leading-loose">{vuln.description}</p>
+                                        <div className="mt-4 flex items-center gap-2">
+                                            <code className="text-[11px] bg-warm-100 px-2 py-1 rounded text-accent-primary font-mono shadow-sm">
+                                                {vuln.method} {vuln.url}
+                                            </code>
                                         </div>
-                                        <div className="space-y-3">
-                                            <div className="text-[10px] font-bold uppercase tracking-widest text-text-muted flex items-center gap-2">
-                                                <Cpu className="w-4 h-4" /> Security Audit
+
+                                        {/* Live Threat Intelligence Panel Integration */}
+                                        {!vuln.is_suppressed && (
+                                            <div className="mt-8 pt-6 border-t border-warm-100">
+                                                <ThreatIntelligencePanel
+                                                    vulnerability={vuln}
+                                                    onSimulateExploit={() => setSelectedSimVuln(vuln)}
+                                                />
                                             </div>
-                                            <div className="text-sm text-text-secondary leading-relaxed h-[120px] overflow-y-auto pr-2">
-                                                {vuln.ai_analysis || 'Dynamic analysis completed. Automated validation required to confirm reachability.'}
-                                            </div>
+                                        )}
+                                    </div>
+                                </div>
+
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-6 bg-matrix-pattern/5 p-6 rounded-2xl border border-warm-100 italic">
+                                    <div className="space-y-3">
+                                        <div className="text-[10px] font-bold uppercase tracking-widest text-text-muted flex items-center gap-2">
+                                            <Terminal className="w-4 h-4" /> Technical Context
+                                        </div>
+                                        <pre className="text-[11px] font-mono p-4 bg-white/80 border border-warm-200 rounded-xl overflow-x-auto text-text-primary h-[120px] shadow-inner">
+                                            {vuln.evidence || 'No direct evidence payload captured.'}
+                                        </pre>
+                                    </div>
+                                    <div className="space-y-3">
+                                        <div className="text-[10px] font-bold uppercase tracking-widest text-text-muted flex items-center gap-2">
+                                            <Cpu className="w-4 h-4" /> Security Audit
+                                        </div>
+                                        <div className="text-sm text-text-secondary leading-relaxed h-[120px] overflow-y-auto pr-2">
+                                            {vuln.ai_analysis || 'Dynamic analysis completed. Automated validation required to confirm reachability.'}
                                         </div>
                                     </div>
                                 </div>
                             </div>
-                        ))
-                    )}
-                </div>
-
-                {/* Sidebar: Live Terminal & Legend */}
-                <div className="space-y-8">
-                    {terminalLines.length > 0 && (
-                        <div className="glass-card p-6">
-                            <h3 className="text-lg font-serif-display font-medium text-text-primary mb-6 flex items-center gap-2">
-                                <Terminal className="w-5 h-5" />
-                                Live Intelligence
-                            </h3>
-                            <div className="bg-gray-950 rounded-xl p-4 font-mono text-xs max-h-64 overflow-y-auto space-y-1 shadow-2xl border border-white/5">
-                                {terminalLines.map((line, i) => (
-                                    <div key={i} className="text-green-400/80">
-                                        <span className="opacity-40 mr-2">{'>'}</span>{line}
-                                    </div>
-                                ))}
-                            </div>
                         </div>
-                    )}
+                    ))
+                )}
+            </div>
 
-                    <div className="glass-card p-8">
-                        <h3 className="text-lg font-serif-display font-medium text-text-primary mb-6">Security Context</h3>
-                        <div className="space-y-4">
-                            {[
-                                { label: 'Auth Stack', val: 'E2EE JWT' },
-                                { label: 'Env Proxy', val: 'Isolated Mesh' },
-                                { label: 'Compliance', val: 'SOC2/GDPR' }
-                            ].map((spec, i) => (
-                                <div key={i} className="flex justify-between items-center py-2 border-b border-warm-100 last:border-0">
-                                    <span className="text-xs text-text-muted uppercase font-bold tracking-widest">{spec.label}</span>
-                                    <span className="text-xs font-bold text-text-primary">{spec.val}</span>
+            {/* Bottom Panels: Live Intelligence & Security Context */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-8 pt-6 border-t border-warm-150">
+                {terminalLines.length > 0 && (
+                    <div className="glass-card p-6">
+                        <h3 className="text-lg font-serif-display font-medium text-text-primary mb-6 flex items-center gap-2">
+                            <Terminal className="w-5 h-5 text-accent-primary" />
+                            Live Intelligence
+                        </h3>
+                        <div className="bg-gray-950 rounded-xl p-4 font-mono text-xs max-h-64 overflow-y-auto space-y-1 shadow-2xl border border-white/5">
+                            {terminalLines.map((line, i) => (
+                                <div key={i} className="text-green-400/80">
+                                    <span className="opacity-40 mr-2">{'>'}</span>{line}
                                 </div>
                             ))}
                         </div>
+                    </div>
+                )}
+
+                <div className="glass-card p-8">
+                    <h3 className="text-lg font-serif-display font-medium text-text-primary mb-6">Security Context</h3>
+                    <div className="space-y-4">
+                        {[
+                            { label: 'Auth Stack', val: 'E2EE JWT' },
+                            { label: 'Env Proxy', val: 'Isolated Mesh' },
+                            { label: 'Compliance', val: 'SOC2/GDPR' }
+                        ].map((spec, i) => (
+                            <div key={i} className="flex justify-between items-center py-2 border-b border-warm-100 last:border-0">
+                                <span className="text-xs text-text-muted uppercase font-bold tracking-widest">{spec.label}</span>
+                                <span className="text-xs font-bold text-text-primary">{spec.val}</span>
+                            </div>
+                        ))}
                     </div>
                 </div>
             </div>

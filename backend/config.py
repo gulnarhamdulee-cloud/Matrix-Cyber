@@ -29,6 +29,8 @@ class Settings(BaseSettings):
     groq_api_key_repo: str = ""
     groq_api_key_chatbot: str = ""
     groq_api_key_fallback: str = ""
+    groq_keys_pool: str = ""  # Comma-separated list of 10+ Groq API keys
+
     
     # Groq Model Configuration
     # Scanner Models

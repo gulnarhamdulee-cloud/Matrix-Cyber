@@ -450,6 +450,18 @@ class BaseSecurityAgent(ABC):
             f"rate_limiting={use_rate_limiting}, caching={use_caching})"
         )
 
+    def log(self, message: str, level: str = "info") -> None:
+        """Log a message with the agent's name as context."""
+        log_msg = f"[{self.agent_name}] {message}"
+        if level.lower() == "debug":
+            logger.debug(log_msg)
+        elif level.lower() == "warning":
+            logger.warning(log_msg)
+        elif level.lower() == "error":
+            logger.error(log_msg)
+        else:
+            logger.info(log_msg)
+
     def _create_http_client(self) -> httpx.AsyncClient:
         """
         Create configured HTTP client.
@@ -767,15 +779,15 @@ class BaseSecurityAgent(ABC):
                 self.request_stats.errors += 1
 
                 if attempt == self.max_retries - 1:
-                    logger.error(
-                        f"[{self.agent_name}] Request failed after {self.max_retries} "
-                        f"attempts: {url} - {e}"
+                    logger.info(
+                        f"[{self.agent_name}] Target endpoint unreachable after {self.max_retries} "
+                        f"attempts: {url} ({e})"
                     )
                     return None
 
                 # Exponential backoff
                 backoff_time = self._calculate_backoff(attempt)
-                logger.warning(
+                logger.debug(
                     f"[{self.agent_name}] Request failed (attempt {attempt + 1}/"
                     f"{self.max_retries}), retrying in {backoff_time:.1f}s: {e}"
                 )
@@ -1190,7 +1202,7 @@ class BaseSecurityAgent(ABC):
             impact: float = 0.0,
             exploitability_rationale: str = "",
             detection_method: str = "",
-            audit_log: List[str] = None,
+            audit_log: Optional[List[str]] = None,
             vulnerability_context: Optional[VulnerabilityContext] = None,
             external_cvss_vector: Optional[str] = None,
             **kwargs: Any
@@ -1387,12 +1399,12 @@ class BaseSecurityAgent(ABC):
             url=url,
             title=title,
             description=description,
-            ai_analysis=ai_analysis.get("reason", ""),
-            root_cause=ai_analysis.get("root_cause", ""),
-            business_impact=ai_analysis.get("business_impact", ""),
-            compliance_mapping=ai_analysis.get("compliance_mapping", {}),
-            remediation=ai_analysis.get("remediation", {}).get("short_term", "") if isinstance(ai_analysis.get("remediation"), dict) else ai_analysis.get("remediation", ""),
-            remediation_code=ai_analysis.get("remediation", {}).get("code_example", "") if isinstance(ai_analysis.get("remediation"), dict) else "",
+            ai_analysis=kwargs.pop('ai_analysis', ai_analysis.get("reason", "")),
+            root_cause=kwargs.pop('root_cause', ai_analysis.get("root_cause", "")),
+            business_impact=kwargs.pop('business_impact', ai_analysis.get("business_impact", "")),
+            compliance_mapping=kwargs.pop('compliance_mapping', ai_analysis.get("compliance_mapping", {})),
+            remediation=kwargs.pop('remediation', ai_analysis.get("remediation", {}).get("short_term", "") if isinstance(ai_analysis.get("remediation"), dict) else ai_analysis.get("remediation", "")),
+            remediation_code=kwargs.pop('remediation_code', ai_analysis.get("remediation", {}).get("code_example", "") if isinstance(ai_analysis.get("remediation"), dict) else ""),
             likelihood=likelihood,
             impact=impact,
             exploitability_rationale=exploitability,

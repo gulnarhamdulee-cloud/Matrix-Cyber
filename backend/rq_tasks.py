@@ -195,11 +195,37 @@ async def _execute_scan_async(scan_id: int) -> dict:
                 scan.completed_at = datetime.now(timezone.utc)
                 scan.total_vulnerabilities = len(results)
                 
-                # Save scanned files list
-                if orchestrator.scan_context and orchestrator.scan_context.scanned_files:
-                    scan.scanned_files = orchestrator.scan_context.scanned_files
+                # Save scan context metrics
+                if orchestrator.scan_context:
+                    if orchestrator.scan_context.discovered_endpoints:
+                        scan.endpoints_discovered = len(orchestrator.scan_context.discovered_endpoints)
+                    if orchestrator.scan_context.technology_stack:
+                        scan.technology_stack = list(orchestrator.scan_context.technology_stack)
+                    if orchestrator.scan_context.scanned_files:
+                        scan.scanned_files = orchestrator.scan_context.scanned_files
 
                 await db.commit()
+
+                # --- Marketplace Valuation: Auto-analyze all found vulnerabilities ---
+                logger.info(f"[RQ Worker] Triggering marketplace valuation for scan {scan_id}...")
+                try:
+                    from marketplace_simulation.services.marketplace_service import MarketplaceService
+                    from sqlalchemy import select as sa_select
+                    vuln_results = await db.execute(
+                        sa_select(Vulnerability).where(Vulnerability.scan_id == scan_id)
+                    )
+                    saved_vulns = vuln_results.scalars().all()
+                    val_count = 0
+                    for v in saved_vulns:
+                        try:
+                            await MarketplaceService.analyze_vulnerability(v.id, db)
+                            val_count += 1
+                        except Exception as ve:
+                            logger.error(f"[RQ Worker] Marketplace valuation failed for vuln {v.id}: {ve}")
+                    logger.info(f"[RQ Worker] Marketplace valuation complete: {val_count}/{len(saved_vulns)} analyzed.")
+                except Exception as me:
+                    logger.error(f"[RQ Worker] Marketplace valuation step failed: {me}")
+                # --- End Marketplace Valuation ---
 
                 logger.info(f"[RQ Worker] Scan {scan_id} completed successfully")
                 

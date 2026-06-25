@@ -13,7 +13,7 @@ class ScanCreate(BaseModel):
     target_name: Optional[str] = Field(None, description="Friendly name for the target")
     scan_type: str = Field("full", description="Type of scan: full, quick, or custom")
     agents_enabled: List[str] = Field(
-        default=["sql_injection", "xss", "auth", "api_security"],
+        default=["sql_injection", "xss", "authentication", "api_security", "csrf", "ssrf", "command_injection", "security_headers"],
         description="List of agent types to enable"
     )
     

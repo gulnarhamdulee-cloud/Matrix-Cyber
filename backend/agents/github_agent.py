@@ -300,7 +300,7 @@ class GithubSecurityAgent(BaseSecurityAgent):
             integrity_impact: str = "None",
             availability_impact: str = "None",
             metric_impact: float = 5.0,
-            data_exposed: List[str] = None
+            data_exposed: Optional[List[str]] = None
     ) -> VulnerabilityContext:
         """Build VulnerabilityContext for GitHub findings."""
         # Map High/Low impacts to context fields for CVSS calculation
@@ -433,8 +433,8 @@ class GithubSecurityAgent(BaseSecurityAgent):
     async def scan(
             self,
             target_url: str,
-            endpoints: List[Dict[str, Any]] = None,
-            technology_stack: List[str] = None,
+            endpoints: Optional[List[Dict[str, Any]]] = None,
+            technology_stack: Optional[List[str]] = None,
             scan_context: Optional["ScanContext"] = None
     ) -> List[AgentResult]:
         """
@@ -1474,7 +1474,7 @@ Return a JSON object with this key "hotspots" containing a list of strings: {{"h
 
         return min(score, 100)
 
-    def _prioritize_files(self, files: List[Dict[str, Any]], hotspots: Set[str] = None) -> List[FileMetadata]:
+    def _prioritize_files(self, files: List[Dict[str, Any]], hotspots: Optional[Set[str]] = None) -> List[FileMetadata]:
         """
         Intelligently prioritize files for scanning based on security value.
         """
@@ -1513,7 +1513,7 @@ Return a JSON object with this key "hotspots" containing a list of strings: {{"h
             repo: str,
             branch: str,
             files: List[FileMetadata],
-            hotspots: Set[str] = None
+            hotspots: Optional[Set[str]] = None
     ) -> Tuple[List[AgentResult], List[Dict[str, str]]]:
         results = []
         hotspot_data = []

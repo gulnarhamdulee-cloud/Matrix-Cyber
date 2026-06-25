@@ -248,10 +248,10 @@ class TargetAnalyzer:
     def __init__(
         self,
         timeout: float = 30.0,
-        max_depth: int = 2,
+        max_depth: int = 4,           # Increased from 3 — crawl deeper into the site
         auth_headers: Optional[Dict[str, str]] = None,
         auth_cookies: Optional[Dict[str, str]] = None,
-        max_concurrent: int = 10
+        max_concurrent: int = 20       # Increased from 10 — faster concurrent probing
     ):
         """
         Initialize the target analyzer.
@@ -367,7 +367,10 @@ class TargetAnalyzer:
             common_path_endpoints = await self._probe_common_paths(target_url)
             endpoints.extend(common_path_endpoints)
 
-            
+            # Parse sitemap.xml to discover pages the crawler might miss
+            sitemap_endpoints = await self._discover_from_sitemap(target_url)
+            endpoints.extend(sitemap_endpoints)
+
             # Analyze external JavaScript files concurrently
             js_endpoints = await self._analyze_javascript_files(
                 analysis.scripts,
@@ -375,16 +378,22 @@ class TargetAnalyzer:
             )
             endpoints.extend(js_endpoints)
             
-            # Deduplicate endpoints
-            seen = set()
-            unique_endpoints = []
+            # Deduplicate endpoints, preferring those with parameters and merging them
+            deduped = {}
             for ep in endpoints:
                 key = (ep.url, ep.method)
-                if key not in seen:
-                    seen.add(key)
-                    unique_endpoints.append(ep)
+                if key not in deduped:
+                    deduped[key] = ep
+                else:
+                    # Prefer endpoint with parameters or merge them
+                    if not deduped[key].params and ep.params:
+                        # Existing has no params, replace it
+                        deduped[key] = ep
+                    elif ep.params:
+                        # Merge parameters
+                        deduped[key].params.update(ep.params)
             
-            analysis.endpoints = unique_endpoints
+            analysis.endpoints = list(deduped.values())
             
         except Exception as e:
             print(f"[Analyzer] Error analyzing {target_url}: {e}")
@@ -770,15 +779,23 @@ class TargetAnalyzer:
             action = form.get("action", "")
             method = form.get("method", "GET").upper()
             full_url = urljoin(base_url, action)
+            base_url_no_query = full_url.split("?")[0]
             
+            # Extract query parameters from action URL if any
             params = {}
-            for input_elem in form.find_all("input"):
+            parsed_action = urlparse(full_url)
+            if parsed_action.query:
+                for key, values in parse_qs(parsed_action.query).items():
+                    params[key] = values[0] if values else ""
+            
+            # Extract form inputs (input, textarea, select)
+            for input_elem in form.find_all(["input", "textarea", "select"]):
                 name = input_elem.get("name")
                 if name:
                     params[name] = input_elem.get("value", "")
             
             endpoints.append(DiscoveredEndpoint(
-                url=full_url,
+                url=base_url_no_query,
                 method=method,
                 params=params,
                 source="form"
@@ -787,7 +804,7 @@ class TargetAnalyzer:
         # Recursive crawling (if depth permits)
         if depth < self.max_depth:
             crawl_tasks = []
-            for link in soup.find_all("a", href=True)[:10]:  # Limit to 10 links per page
+            for link in soup.find_all("a", href=True)[:30]:  # Increased from 10 — follow more links per page
                 href = link.get("href", "")
                 full_url = urljoin(base_url, href)
                 parsed_url = urlparse(full_url)
@@ -862,6 +879,94 @@ class TargetAnalyzer:
         # Filter out None values and exceptions
         endpoints = [r for r in results if isinstance(r, DiscoveredEndpoint)]
         return endpoints
+
+    async def _discover_from_sitemap(self, base_url: str) -> List[DiscoveredEndpoint]:
+        """
+        Parse sitemap.xml and sitemap_index.xml to discover endpoints.
+
+        Many real websites only expose their full URL structure via the sitemap,
+        not through crawlable links. This is especially true for SPAs, e-commerce
+        sites, and blogs. Each discovered URL becomes a candidate for security testing.
+
+        Args:
+            base_url: Base URL to look for sitemaps
+
+        Returns:
+            List of discovered endpoints from the sitemap
+        """
+        endpoints = []
+        parsed_base = urlparse(base_url)
+        root = f"{parsed_base.scheme}://{parsed_base.netloc}"
+
+        sitemap_urls = [
+            f"{root}/sitemap.xml",
+            f"{root}/sitemap_index.xml",
+            f"{root}/sitemap-index.xml",
+            f"{root}/robots.txt",   # robots.txt often reveals sitemap location
+        ]
+
+        discovered_urls: Set[str] = set()
+
+        for sitemap_url in sitemap_urls:
+            try:
+                response = await self._fetch_with_error_handling(sitemap_url)
+                if not response or response.status_code >= 400:
+                    continue
+
+                content = response.text
+
+                # Extract sitemap locations from robots.txt
+                if "robots.txt" in sitemap_url:
+                    sitemap_matches = re.findall(r'(?i)sitemap:\s*(https?://[^\s]+)', content)
+                    for sm_url in sitemap_matches[:3]:  # Limit to 3 sitemaps from robots.txt
+                        try:
+                            sm_response = await self._fetch_with_error_handling(sm_url)
+                            if sm_response and sm_response.status_code < 400:
+                                content = sm_response.text
+                                # Fall through to XML parsing below
+                            else:
+                                continue
+                        except Exception:
+                            continue
+
+                # Parse sitemap XML — extract <loc> tags
+                loc_urls = re.findall(r'<loc>\s*(https?://[^<]+)\s*</loc>', content)
+
+                for url in loc_urls[:100]:  # Cap at 100 to avoid enormous sitemaps
+                    url = url.strip()
+                    parsed_url = urlparse(url)
+
+                    # Only include same-host URLs
+                    if parsed_url.netloc != parsed_base.netloc:
+                        continue
+
+                    url_key = url.split("?")[0]
+                    if url_key in discovered_urls or url_key in self.visited_urls:
+                        continue
+
+                    discovered_urls.add(url_key)
+
+                    # Parse query parameters
+                    query_params = {}
+                    if parsed_url.query:
+                        for key, values in parse_qs(parsed_url.query).items():
+                            query_params[key] = values[0] if values else ""
+
+                    endpoints.append(DiscoveredEndpoint(
+                        url=url_key,
+                        method="GET",
+                        params=query_params,
+                        source="sitemap"
+                    ))
+
+            except Exception as e:
+                print(f"[Analyzer] Sitemap parsing error for {sitemap_url}: {e}")
+
+        if endpoints:
+            print(f"[Analyzer] Discovered {len(endpoints)} endpoints from sitemap/robots.txt")
+
+        return endpoints
+
     
     async def _crawl_page(self, url: str, depth: int) -> List[DiscoveredEndpoint]:
         """
