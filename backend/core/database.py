@@ -55,9 +55,17 @@ class DatabaseConfig:
         try:
             # Ensure the database URL uses an async driver for PostgreSQL
             db_url = settings.database_url
-            if db_url.startswith("postgresql://"):
+            # Handle both 'postgres://' (NeonDB/Heroku) and 'postgresql://' prefixes
+            if db_url.startswith("postgres://") and not db_url.startswith("postgresql"):
+                db_url = db_url.replace("postgres://", "postgresql+asyncpg://", 1)
+                logger.info("Automatically converted postgres:// to postgresql+asyncpg:// for NeonDB compatibility")
+            elif db_url.startswith("postgresql://"):
                 db_url = db_url.replace("postgresql://", "postgresql+asyncpg://", 1)
                 logger.info("Automatically added +asyncpg to DATABASE_URL for compatibility")
+            # Fix SSL param: asyncpg uses ?ssl=require, not ?sslmode=require
+            if "sslmode=require" in db_url:
+                db_url = db_url.replace("sslmode=require", "ssl=require")
+                logger.info("Converted sslmode=require to ssl=require for asyncpg compatibility")
             
             logger.info(f"Initializing database engine: {self._get_safe_url(db_url)}")
             

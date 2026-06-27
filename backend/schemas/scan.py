@@ -1,7 +1,7 @@
 """
 Scan schemas.
 """
-from pydantic import BaseModel, Field, HttpUrl
+from pydantic import BaseModel, Field, HttpUrl, field_validator
 from typing import Optional, List, Dict
 from datetime import datetime
 from models.scan import ScanStatus
@@ -61,6 +61,12 @@ class ScanResponse(BaseModel):
     technology_stack: List[str] = []
     agents_enabled: List[str] = []
     scanned_files: List[str] = []
+
+    @field_validator('technology_stack', 'agents_enabled', 'scanned_files', mode='before')
+    @classmethod
+    def coerce_none_to_list(cls, v):
+        """Convert None (NULL from DB) to empty list for backward compatibility with old scan records."""
+        return v if v is not None else []
     
     # Advanced testing options
     enable_waf_evasion: bool = False
