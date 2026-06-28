@@ -24,17 +24,120 @@ interface AgentStatus {
     findings: number;
 }
 
+// Fix 2: Plain-English explanation helper component with dynamic Threat Intel (Groq) integration
+function VulnerabilityMeaningBox({ vuln }: { vuln: Vulnerability }) {
+    const [intel, setIntel] = useState<any>(null);
+    const [loading, setLoading] = useState(false);
+
+    // Static beginner-friendly explanations
+    const getDetailedFallback = (type: string) => {
+        const fallbacks: Record<string, { summary: string; impact: string }> = {
+            sql_injection: {
+                summary: "This is like a lockpicker finding a master key hole. An attacker can write database commands into your website inputs to bypass logins, view confidential customer records, delete tables, or modify data.",
+                impact: "High risk of database leaks, credential theft, and unauthorized data alterations."
+            },
+            xss: {
+                summary: "This is like a vandal pasting a fake, malicious form over your real website. An attacker can inject code that runs in a user's browser, letting them steal passwords, hijack login sessions, or redirect users to scam pages.",
+                impact: "Attackers can impersonate your users or steal their active session details."
+            },
+            csrf: {
+                summary: "This is like a scammer tricking you into signing a bank transfer authorization while you are distracted. It allows malicious external sites to force your logged-in users to perform actions without their knowledge.",
+                impact: "Users can be forced to change passwords, update profile details, or perform transaction actions."
+            },
+            ssrf: {
+                summary: "This is like an intruder using your internal office intercom to access private server rooms. The attacker tricks your website server into contacting internal systems or cloud hosting control systems that should be private.",
+                impact: "Leakage of cloud credentials or access to internal private services."
+            },
+            security_misconfiguration: {
+                summary: "This is like leaving your front gate closed but unlocked. The server is missing standard protective headers, allowing attackers to clickjack the page or bypass browser security settings.",
+                impact: "Vulnerability to iframe clickjacking, content sniffing, and credential compromise."
+            },
+            missing_security_headers: {
+                summary: "Your web server isn't sending standard safety configuration headers. Without these, browsers won't enforce defenses like preventing other sites from framing your content or blocking untrusted scripts.",
+                impact: "Increases user exposure to client-side attacks, site cloning, and clickjacking."
+            }
+        };
+        
+        const matched = Object.entries(fallbacks).find(([key]) => type.toLowerCase().includes(key));
+        return matched ? matched[1] : {
+            summary: "A vulnerability of this type allows attackers to bypass standard logic safeguards and interact directly with system functions or data.",
+            impact: "Potential compromise of system confidentiality and authorization parameters."
+        };
+    };
+
+    useEffect(() => {
+        const fetchIntel = async () => {
+            setLoading(true);
+            try {
+                const data = await api.getVulnerabilityIntelligence(vuln.id);
+                if (data && data.attack_summary && data.attack_summary !== "Analysis unavailable") {
+                    setIntel(data);
+                }
+            } catch (err) {
+                console.error("Failed to load threat intel:", err);
+            } finally {
+                setLoading(false);
+            }
+        };
+        fetchIntel();
+    }, [vuln.id]);
+
+    const fallback = getDetailedFallback(vuln.vulnerability_type);
+
+    return (
+        <div className="mb-4 p-4 bg-blue-50 border border-blue-100 rounded-md">
+            <div className="flex gap-2">
+                <Eye className="w-5 h-5 text-blue-600 flex-shrink-0 mt-0.5" />
+                <div className="flex-1">
+                    <p className="text-sm font-bold text-blue-800 mb-1">What does this mean for you?</p>
+                    {loading ? (
+                        <div className="flex items-center gap-2 py-1">
+                            <div className="w-3 h-3 border-2 border-blue-600 border-t-transparent rounded-full animate-spin" />
+                            <span className="text-xs text-blue-600 font-mono">Asking Groq for simplified explanation...</span>
+                        </div>
+                    ) : intel ? (
+                        <div className="space-y-2">
+                            <p className="text-sm text-blue-900 leading-relaxed font-serif">
+                                {intel.attack_summary}
+                            </p>
+                            {intel.why_trending && (
+                                <p className="text-xs text-blue-700 bg-white/60 p-2 rounded border border-blue-100/50">
+                                    <span className="font-semibold">Threat Context:</span> {intel.why_trending}
+                                </p>
+                            )}
+                            <div className="text-xs text-blue-800">
+                                <span className="font-semibold">Business Impact:</span> {intel.business_impact}
+                            </div>
+                        </div>
+                    ) : (
+                        <div className="space-y-2">
+                            <p className="text-sm text-blue-900 leading-relaxed font-serif">
+                                {fallback.summary}
+                            </p>
+                            <div className="text-xs text-blue-800">
+                                <span className="font-semibold">Potential Impact:</span> {fallback.impact}
+                            </div>
+                        </div>
+                    )}
+                </div>
+            </div>
+        </div>
+    );
+}
+
 export default function ScanPage() {
     const { user, logout, isAuthenticated } = useAuth();
     const router = useRouter();
     const searchParams = useSearchParams();
     const [targetUrl, setTargetUrl] = useState('');
+    const [urlError, setUrlError] = useState<string | null>(null); // Fix 6: URL validation
     const [isScanning, setIsScanning] = useState(false);
     const [scanProgress, setScanProgress] = useState(0);
     const [scanResults, setScanResults] = useState<Scan | null>(null);
     const [findings, setFindings] = useState<Vulnerability[]>([]);
     const [error, setError] = useState<string | null>(null);
     const [expandedVuln, setExpandedVuln] = useState<number | null>(null);
+    const [tooltipVuln, setTooltipVuln] = useState<number | null>(null); // Fix 2: tooltip state
     const [activeTab, setActiveTab] = useState<'overview' | 'findings' | 'details'>('overview');
     const [terminalLogs, setTerminalLogs] = useState<{ type: string, message: string }[]>([]);
     const [agentStatuses, setAgentStatuses] = useState<AgentStatus[]>([
@@ -171,8 +274,44 @@ export default function ScanPage() {
         return cookies;
     };
 
+    // Fix 6: URL validation helper
+    const isValidUrl = (url: string): boolean => {
+        try {
+            const parsed = new URL(url);
+            return parsed.protocol === 'http:' || parsed.protocol === 'https:';
+        } catch {
+            return false;
+        }
+    };
+
+    // Fix 2: Plain-English meaning for each vulnerability type
+    const getPlainEnglishMeaning = (vulnType: string, severity: string): string => {
+        const meanings: Record<string, string> = {
+            sql_injection: 'An attacker can read, modify, or delete your entire database using this vulnerability.',
+            xss: 'An attacker can inject malicious scripts that run in your users\' browsers, stealing their sessions or data.',
+            xss_reflected: 'Malicious code in a URL can be sent to users and executed in their browser — like a phishing attack.',
+            xss_stored: 'An attacker can permanently store malicious code on your site that runs for every visitor.',
+            csrf: 'An attacker can trick your logged-in users into performing actions they didn\'t intend, like changing their password.',
+            ssrf: 'An attacker can make your server connect to internal systems or cloud metadata, leaking sensitive infrastructure details.',
+            broken_authentication: 'Your login system has weaknesses that allow attackers to guess passwords or bypass authentication.',
+            command_injection: 'An attacker can run system commands on your server — this is the worst type of vulnerability (full server takeover).',
+            api_security: 'Your API endpoints expose data or allow actions that should be restricted to authorized users only.',
+            security_misconfiguration: 'Your server is missing security settings that protect against common attacks.',
+            information_disclosure: 'Your site is accidentally revealing technical details (like software versions) that help attackers plan their attack.',
+            default: severity === 'critical' ? 'This is a serious security hole. An attacker can exploit this to harm your site or users.' : 'This issue could be exploited under the right conditions. It is worth reviewing and fixing.'
+        };
+        return meanings[vulnType.toLowerCase()] || meanings.default;
+    };
+
     const handleScanButtonClick = () => {
         if (!targetUrl) return;
+
+        // Fix 6: Validate URL format before showing warning
+        if (!isValidUrl(targetUrl)) {
+            setUrlError('Please enter a valid URL starting with http:// or https:// — Example: https://yourwebsite.com');
+            return;
+        }
+        setUrlError(null);
 
         // Check if user has permanently disabled the warning
         const isPermanentlyDisabled = localStorage.getItem('matrix_skip_scan_warning') === 'true';
@@ -500,16 +639,19 @@ export default function ScanPage() {
                                         type="url"
                                         placeholder="https://example.com"
                                         value={targetUrl}
-                                        onChange={(e) => setTargetUrl(e.target.value)}
+                                        onChange={(e) => { setTargetUrl(e.target.value); setUrlError(null); }}
                                         onKeyDown={(e) => { if (e.key === 'Enter' && targetUrl && !isScanning) handleScanButtonClick(); }}
-                                        className="w-full pl-10 pr-4 py-3 rounded-md border border-gray-200 focus:border-gray-400 focus:ring-2 focus:ring-gray-100 outline-none text-sm text-gray-900 placeholder:text-gray-400 bg-gray-50"
+                                        className={`w-full pl-10 pr-4 py-3 rounded-md border focus:ring-2 outline-none text-sm text-gray-900 placeholder:text-gray-400 bg-gray-50 transition-colors ${
+                                            urlError ? 'border-red-400 focus:border-red-500 focus:ring-red-100' : 'border-gray-200 focus:border-gray-400 focus:ring-gray-100'
+                                        }`}
                                         disabled={isScanning}
                                     />
                                 </div>
+                                {/* Fix 7: min-h-[44px] for mobile touch targets */}
                                 <button
                                     onClick={handleScanButtonClick}
                                     disabled={!targetUrl || isScanning}
-                                    className="px-6 py-3 bg-emerald-700 text-white font-medium rounded-md text-sm hover:bg-emerald-800 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 whitespace-nowrap shadow-md"
+                                    className="px-6 py-3 min-h-[44px] bg-emerald-700 text-white font-medium rounded-md text-sm hover:bg-emerald-800 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 whitespace-nowrap shadow-md touch-manipulation"
                                 >
                                     {isScanning ? (
                                         <>
@@ -523,6 +665,22 @@ export default function ScanPage() {
                                         </>
                                     )}
                                 </button>
+                            </div>
+
+                            {/* Fix 6: URL Validation Error */}
+                            {urlError && (
+                                <div className="mt-3 flex items-start gap-2 p-3 bg-red-50 border border-red-200 rounded-md">
+                                    <XCircle className="w-4 h-4 text-red-500 flex-shrink-0 mt-0.5" />
+                                    <p className="text-xs text-red-700">{urlError}</p>
+                                </div>
+                            )}
+
+                            {/* Fix 3: Legal & Privacy Notice */}
+                            <div className="mt-3 p-3 bg-blue-50 border border-blue-100 rounded-md flex items-start gap-2">
+                                <Shield className="w-4 h-4 text-blue-500 flex-shrink-0 mt-0.5" />
+                                <p className="text-xs text-blue-700">
+                                    <span className="font-semibold">Legal & Privacy:</span> Matrix only scans URLs that you own or have explicit permission to test. No raw request/response data is stored permanently. By scanning, you confirm you have authorization over the target.
+                                </p>
                             </div>
 
                             {/* Advanced Options - WAF Evasion */}
@@ -616,6 +774,21 @@ export default function ScanPage() {
                         {isScanning && (
                             <div className="bg-white rounded-md border border-gray-200 overflow-hidden mb-6">
                                 <div className="p-5 border-b border-gray-100">
+                                    {/* Fix 6: Live status text so user knows what's happening */}
+                                    <div className="mb-3 px-3 py-2 bg-emerald-50 border border-emerald-100 rounded-md flex items-center gap-2">
+                                        <div className="w-2 h-2 bg-emerald-500 rounded-full animate-pulse flex-shrink-0" />
+                                        <p className="text-xs text-emerald-700 font-medium">
+                                            {scanProgress < 15 ? 'Initializing agents and connecting to target...' :
+                                             scanProgress < 30 ? 'Running reconnaissance — discovering endpoints...' :
+                                             scanProgress < 45 ? 'Testing for SQL Injection vulnerabilities...' :
+                                             scanProgress < 55 ? 'Scanning for XSS attack vectors...' :
+                                             scanProgress < 65 ? 'Checking CSRF token protections...' :
+                                             scanProgress < 75 ? 'Testing SSRF and server-side request paths...' :
+                                             scanProgress < 85 ? 'Auditing authentication mechanisms...' :
+                                             scanProgress < 95 ? 'Running API security and header checks...' :
+                                             'AI is correlating findings and generating report...'}
+                                        </p>
+                                    </div>
                                     <div className="flex items-center justify-between mb-4">
                                         <div className="flex items-center gap-3">
                                             <Activity className="w-5 h-5 text-gray-900 animate-pulse" />
@@ -761,6 +934,55 @@ export default function ScanPage() {
                                     findings={findings}
                                     agentStatuses={agentStatuses}
                                 />
+
+                                {/* Fix 5: Plain-English Executive Summary Card */}
+                                <div className={`rounded-xl p-5 border-2 ${(
+                                    scanResults?.critical_count ?? 0) > 0
+                                        ? 'bg-red-50 border-red-200'
+                                        : (scanResults?.high_count ?? 0) > 0
+                                            ? 'bg-orange-50 border-orange-200'
+                                            : (scanResults?.total_vulnerabilities ?? 0) > 0
+                                                ? 'bg-yellow-50 border-yellow-200'
+                                                : 'bg-green-50 border-green-200'
+                                }`}>
+                                    <div className="flex items-start gap-4">
+                                        <div className={`w-12 h-12 rounded-xl flex items-center justify-center flex-shrink-0 ${
+                                            (scanResults?.critical_count ?? 0) > 0 ? 'bg-red-100' :
+                                            (scanResults?.high_count ?? 0) > 0 ? 'bg-orange-100' :
+                                            (scanResults?.total_vulnerabilities ?? 0) > 0 ? 'bg-yellow-100' : 'bg-green-100'
+                                        }`}>
+                                            {(scanResults?.critical_count ?? 0) > 0
+                                                ? <XCircle className="w-6 h-6 text-red-600" />
+                                                : (scanResults?.total_vulnerabilities ?? 0) > 0
+                                                    ? <AlertTriangle className="w-6 h-6 text-yellow-600" />
+                                                    : <ShieldCheck className="w-6 h-6 text-green-600" />
+                                            }
+                                        </div>
+                                        <div className="flex-1">
+                                            <p className="text-xs font-bold uppercase tracking-widest text-gray-500 mb-1">Executive Summary — Plain English</p>
+                                            <h3 className={`text-lg font-bold mb-1 ${
+                                                (scanResults?.critical_count ?? 0) > 0 ? 'text-red-700' :
+                                                (scanResults?.high_count ?? 0) > 0 ? 'text-orange-700' :
+                                                (scanResults?.total_vulnerabilities ?? 0) > 0 ? 'text-yellow-700' : 'text-green-700'
+                                            }`}>
+                                                {(scanResults?.critical_count ?? 0) > 0
+                                                    ? `⚠️ Your site has ${scanResults?.critical_count} critical security hole${(scanResults?.critical_count ?? 0) > 1 ? 's' : ''} — a hacker can exploit ${(scanResults?.critical_count ?? 0) > 1 ? 'these' : 'this'} right now.`
+                                                    : (scanResults?.high_count ?? 0) > 0
+                                                        ? `🔶 Your site has ${scanResults?.high_count} serious issue${(scanResults?.high_count ?? 0) > 1 ? 's' : ''} that need attention before going live.`
+                                                        : (scanResults?.total_vulnerabilities ?? 0) > 0
+                                                            ? `🔵 ${scanResults?.total_vulnerabilities} minor issue${(scanResults?.total_vulnerabilities ?? 0) > 1 ? 's' : ''} found. Low risk — review when convenient.`
+                                                            : '✅ No security vulnerabilities found. Your site looks clean!'}
+                                            </h3>
+                                            <p className="text-sm text-gray-600">
+                                                {(scanResults?.critical_count ?? 0) > 0
+                                                    ? 'Scroll down to see each issue. Click any finding to expand it, then use the "Fix with AI" button to get step-by-step instructions on how to close the security hole.'
+                                                    : (scanResults?.total_vulnerabilities ?? 0) > 0
+                                                        ? 'No emergency action needed, but review the findings below when you get a chance. Each one explains what it means in plain terms.'
+                                                        : 'Great job! Matrix tested your site with 8 specialized security agents and found nothing to worry about. Scan again after your next major update.'}
+                                            </p>
+                                        </div>
+                                    </div>
+                                </div>
 
                                 {/* Report Header - Executive Summary */}
                                 <header className="bg-white rounded-md border border-gray-200 p-6">
@@ -952,6 +1174,9 @@ export default function ScanPage() {
                                                                             <tr>
                                                                                 <td colSpan={6} className="p-0">
                                                                                     <div className={`p-5 bg-gray-50 border-l-4 ${getSeverityBorder(vuln.severity)}`}>
+                                                                                        {/* Fix 2: Plain-English "What does this mean?" with dynamic LLM loading option */}
+                                                                                        <VulnerabilityMeaningBox vuln={vuln} />
+
                                                                                         {/* CVSS Vector */}
                                                                                         <div className="mb-4 p-3 bg-white rounded border border-gray-200">
                                                                                             <div className="text-xs text-gray-500 uppercase tracking-wide mb-1">CVSS Vector</div>

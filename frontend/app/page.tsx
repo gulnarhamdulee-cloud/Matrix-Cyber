@@ -30,18 +30,21 @@ export default function Home() {
 
                         <div className="pt-4 flex flex-wrap items-center gap-6">
                             <Link
-                                href="/hub"
+                                href="/scan"
                                 className="btn-primary rounded-2xl inline-flex items-center gap-3 text-xl font-serif-display font-medium px-10 py-5 shadow-lg hover:shadow-xl transform hover:-translate-y-1 transition-all duration-300"
                             >
-                                Dive into Matrix
+                                🔍 Start Free Scan
                                 <ArrowRight className="w-5 h-5" />
                             </Link>
-                            <Link
-                                href={isAuthenticated ? "/dashboard" : "/login"}
-                                className="px-10 py-5 text-xl font-serif-display font-medium text-accent-primary bg-white/80 backdrop-blur-xl border-2 border-accent-primary/20 hover:border-accent-primary/40 transition-all duration-300 rounded-2xl shadow-[0_12px_40px_-12px_rgba(45,90,74,0.3)] hover:shadow-[0_20px_50px_-12px_rgba(45,90,74,0.4)] transform hover:-translate-y-1 inline-flex items-center justify-center"
-                            >
-                                {isAuthenticated ? "Dashboard" : "Sign In"}
-                            </Link>
+                            <div className="flex flex-col gap-1">
+                                <Link
+                                    href={isAuthenticated ? "/dashboard" : "/login"}
+                                    className="px-10 py-5 text-xl font-serif-display font-medium text-accent-primary bg-white/80 backdrop-blur-xl border-2 border-accent-primary/20 hover:border-accent-primary/40 transition-all duration-300 rounded-2xl shadow-[0_12px_40px_-12px_rgba(45,90,74,0.3)] hover:shadow-[0_20px_50px_-12px_rgba(45,90,74,0.4)] transform hover:-translate-y-1 inline-flex items-center justify-center"
+                                >
+                                    {isAuthenticated ? "Dashboard" : "Sign In"}
+                                </Link>
+                                <span className="text-xs text-text-muted text-center">No setup required</span>
+                            </div>
                         </div>
                     </div>
 

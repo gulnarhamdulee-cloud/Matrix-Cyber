@@ -80,6 +80,62 @@ export default function DashboardPage() {
                         </Link>
                     </div>
 
+                    {/* Fix 1: Plain-English Security Posture Banner */}
+                    {!isLoading && (
+                        <div className={`mb-8 rounded-2xl p-5 flex items-center gap-5 border-2 animate-slide-up ${
+                            stats.criticalVulnerabilities > 0
+                                ? 'bg-red-50 border-red-200'
+                                : stats.totalVulnerabilities > 0
+                                    ? 'bg-yellow-50 border-yellow-200'
+                                    : 'bg-green-50 border-green-200'
+                        }`}>
+                            <div className={`w-14 h-14 rounded-xl flex items-center justify-center flex-shrink-0 ${
+                                stats.criticalVulnerabilities > 0 ? 'bg-red-100' :
+                                stats.totalVulnerabilities > 0 ? 'bg-yellow-100' : 'bg-green-100'
+                            }`}>
+                                {stats.criticalVulnerabilities > 0
+                                    ? <XCircle className="w-7 h-7 text-red-600" />
+                                    : stats.totalVulnerabilities > 0
+                                        ? <AlertTriangle className="w-7 h-7 text-yellow-600" />
+                                        : <CheckCircle className="w-7 h-7 text-green-600" />
+                                }
+                            </div>
+                            <div className="flex-1">
+                                <div className={`text-lg font-bold font-serif-display ${
+                                    stats.criticalVulnerabilities > 0 ? 'text-red-700' :
+                                    stats.totalVulnerabilities > 0 ? 'text-yellow-700' : 'text-green-700'
+                                }`}>
+                                    {stats.criticalVulnerabilities > 0
+                                        ? '⚠️ YOUR SITE IS AT RISK — Immediate Action Required'
+                                        : stats.totalVulnerabilities > 0
+                                            ? '🔶 CAUTION — Some Issues Found, Review Recommended'
+                                            : stats.totalScans > 0
+                                                ? '✅ ALL CLEAR — No Vulnerabilities Detected'
+                                                : '🔍 No Scans Yet — Start Your First Security Check'
+                                    }
+                                </div>
+                                <p className={`text-sm mt-1 ${
+                                    stats.criticalVulnerabilities > 0 ? 'text-red-600' :
+                                    stats.totalVulnerabilities > 0 ? 'text-yellow-600' : 'text-green-600'
+                                }`}>
+                                    {stats.criticalVulnerabilities > 0
+                                        ? `${stats.criticalVulnerabilities} critical security hole${stats.criticalVulnerabilities > 1 ? 's' : ''} found that hackers can exploit right now. Open a scan report and click "Fix with AI" to resolve them.`
+                                        : stats.totalVulnerabilities > 0
+                                            ? `${stats.totalVulnerabilities} minor issue${stats.totalVulnerabilities > 1 ? 's' : ''} detected. These are low risk but worth reviewing. No urgent action needed.`
+                                            : stats.totalScans > 0
+                                                ? 'Your scanned targets look clean. Keep scanning regularly to stay protected.'
+                                                : 'Run a scan on your website or app to check for security vulnerabilities.'
+                                    }
+                                </p>
+                            </div>
+                            {stats.criticalVulnerabilities > 0 && (
+                                <Link href="/scan" className="btn-primary rounded-xl text-sm px-5 py-3 flex-shrink-0">
+                                    Fix Now →
+                                </Link>
+                            )}
+                        </div>
+                    )}
+
                     {/* Stats Grid */}
                     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 mb-12">
                         <div className="glass-card p-6 border-b-4 border-b-accent-primary/30">
